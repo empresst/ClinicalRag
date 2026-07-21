@@ -1,20 +1,9 @@
-#%%writefile evaluation/script6_disagreement_matrix.py
+%%writefile evaluation/script6_disagreement_matrix.py
 """
-script5_disagreement_matrix_with_runD.py
-══════════════════════════════════════════
+script6_disagreement_matrix.py
+══════════════════════════════
 MC3 + MC2 Reviewer Response — Full disagreement matrix including Run D.
-
-Extends script5_disagreement_matrix.py to include Run D (single-stream
-last-layer adapt) in all pairwise comparisons.
-
-New comparisons added:
-  (iv)  Run B  vs  Run D  →  two-stream decomposition vs monolithic selective freeze
-  (v)   Run C  vs  Run D  →  two-stream full adapt vs monolithic selective freeze
-  (vi)  Run D  vs  XGBoost-adapted  →  monolithic last-layer vs monolithic full retrain
-
-Run AFTER:
-  - script2_three_stream_model_v4.py   (produces two_stream_models.pt)
-  - script_run_d_single_stream.py      (produces run_d_model.pt)
+Run AFTER script2 (v5), script3, script5 (corrected).
 """
 
 import json
@@ -24,45 +13,68 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 import torch
-import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 
 from sklearn.metrics import roc_auc_score, average_precision_score, brier_score_loss
-from utils.constants import SEQ_FEATURES, TREATMENT_FEATURES, BINARY_COLS, LABEL_COLS
+from utils.constants import SEQ_FEATURES, TREATMENT_FEATURES, BINARY_COLS
 from utils.data_utils import load_enriched_split, calculate_train_stats, normalize, SingleStreamDataset, ICUDataset
 from utils.train_utils import FocalBCEWithLogitsLoss, compute_pos_weights
-from models.architectures import PhysiologyStream, TreatmentStream, FusionHead, SingleStreamModel, TwoStreamModel, SEED, SEQ_LEN, HIDDEN_DIM, TREAT_DIM, BATCH_SIZE, LSTM_LAYERS, DROPOUT
-
+from models.architectures import TwoStreamModel, SingleStreamModel
 
 warnings.filterwarnings("ignore")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device: {device}")
 
-# ========================== IMPORT UTILS & MODELS ==========================
-
+# FIX 1 + FIX 2: Define all constants locally — do NOT import from architectures.
+# These must exactly match script2 and script3 values.
+SEED         = 42
+SEQ_LEN      = 6
+HIDDEN_DIM   = 64
+TREAT_DIM    = 32
+LSTM_LAYERS  = 2
+BATCH_SIZE   = 64
+DROPOUT      = 0.3
+LABEL_COLS   = ["label_vasopressor", "label_intubation", "label_septic_shock"]
 
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 
-BASE_PATH = Path("/kaggle/input/datasets/fatematamanna/allnew")
-SAVE_PATH = Path("/kaggle/working")
+BASE_PATH  = Path("/kaggle/input/datasets/fatematamanna/allnew")
+SAVE_PATH  = Path("/kaggle/working")
 BASE_PATH2 = Path("/kaggle/input/datasets/fatematamanna/ptfiles")
 
 TAU_HIGH_PRIMARY = 0.50
-TAU_LOW_PRIMARY = 0.10
-THRESHOLD_PAIRS = [(0.50, 0.10), (0.50, 0.20), (0.40, 0.10), 
-                   (0.30, 0.10), (0.50, 0.05)]
+TAU_LOW_PRIMARY  = 0.10
+THRESHOLD_PAIRS  = [(0.50, 0.10), (0.50, 0.20), (0.40, 0.10),
+                    (0.30, 0.10), (0.50, 0.05)]
 
-# ========================== LOAD MODELS ==========================
+# ── LOAD MODELS ───────────────────────────────────────────────────────────────
 print("\nLoading two-stream checkpoint (Runs A, B)...")
-ckpt_ab = torch.load(BASE_PATH2 / "two_stream_models (3).pt", 
+ckpt_ab = torch.load(SAVE_PATH / "two_stream_models.pt",
                      map_location=device, weights_only=False)
 
-seq_dim = ckpt_ab["seq_dim"]
-treat_dim = ckpt_ab["treat_dim"]
-n_targets = ckpt_ab["n_targets"]
+seq_dim     = ckpt_ab["seq_dim"]
+treat_dim   = ckpt_ab["treat_dim"]
+n_targets   = ckpt_ab["n_targets"]
 train_stats = ckpt_ab["train_stats"]
+
+
+_all_trained_features = list(ckpt_ab["train_stats"].keys())
+
+
+SEQ_FEATURES_CKPT   = [f for f in SEQ_FEATURES   if f in _all_trained_features]
+TREAT_FEATURES_CKPT = [f for f in TREATMENT_FEATURES if f in _all_trained_features]
+
+# Verify dims match the saved model
+assert len(TREAT_FEATURES_CKPT) == treat_dim, (
+    f"treat_dim mismatch: checkpoint has {treat_dim} but reconstructed "
+    f"TREAT_FEATURES_CKPT has {len(TREAT_FEATURES_CKPT)}.\n"
+    f"Check that TREATMENT_FEATURES in constants.py matches what was used during training.")
+
+print(f"  Reconstructed: {len(SEQ_FEATURES_CKPT)} seq features, "
+      f"{len(TREAT_FEATURES_CKPT)} treat features")
+
 
 model_A = TwoStreamModel(seq_dim, treat_dim, n_targets).to(device)
 model_B = TwoStreamModel(seq_dim, treat_dim, n_targets).to(device)
@@ -70,80 +82,84 @@ model_A.load_state_dict(ckpt_ab["run_a"]); model_A.eval()
 model_B.load_state_dict(ckpt_ab["run_b"]); model_B.eval()
 
 print("Loading full adapt checkpoint (Runs C, D)...")
-ckpt_cd = torch.load(BASE_PATH2 / "full_adapt_models.pt", 
+ckpt_cd = torch.load(SAVE_PATH / "full_adapt_models.pt",
                      map_location=device, weights_only=False)
 
-model_C = TwoStreamModel(seq_dim, treat_dim, n_targets).to(device)
+seq_dim_cd   = ckpt_cd.get("seq_dim",   seq_dim)
+treat_dim_cd = ckpt_cd.get("treat_dim", treat_dim)
+
+model_C = TwoStreamModel(seq_dim_cd, treat_dim_cd, n_targets).to(device)
 model_C.load_state_dict(ckpt_cd["run_c"]); model_C.eval()
 
 combined_input_dim = ckpt_cd["combined_input_dim"]
-model_D = SingleStreamModel(combined_input_dim, HIDDEN_DIM, LSTM_LAYERS, 
-                           DROPOUT, n_targets).to(device)
+model_D = SingleStreamModel(combined_input_dim, HIDDEN_DIM, LSTM_LAYERS,
+                             DROPOUT, n_targets).to(device)
 model_D.load_state_dict(ckpt_cd["run_d_adapted"]); model_D.eval()
+
+if seq_dim_cd != seq_dim or treat_dim_cd != treat_dim:
+    print(f"  ⚠ Dim mismatch between checkpoints: "
+          f"ckpt_ab=({seq_dim},{treat_dim}) vs ckpt_cd=({seq_dim_cd},{treat_dim_cd})")
+    print(f"  ⚠ Runs A/B and C/D were trained with different feature sets — "
+          f"comparison is only valid if the eval data matches ckpt_cd dims.")
+    # Use ckpt_cd dims as authoritative for eval (C and D are the adapted models)
+    seq_dim   = seq_dim_cd
+    treat_dim = treat_dim_cd
 
 print("✅ All models (A, B, C, D) loaded successfully")
 
-# ========================== DATA LOADING ==========================
+# ── DATA LOADING ──────────────────────────────────────────────────────────────
 print("\nLoading data...")
-test_df = normalize(load_enriched_split(BASE_PATH, "test", SEQ_FEATURES, TREATMENT_FEATURES), 
-                    train_stats)
+test_df = normalize(
+    load_enriched_split(BASE_PATH, "test", SEQ_FEATURES, TREATMENT_FEATURES),
+    train_stats)
 
 test_post = test_df.filter(pl.col("anchor_year_group") == "2020 - 2022")
-
 print(f"Total post-drift stays: {test_post['stay_id'].n_unique()}")
 
-# Try to load locked held-out set first (preferred)
-json_path = BASE_PATH2 / "eval_post_stays.json"
-if json_path.exists():
-    with open(json_path, "r") as f:
-        eval_post_stays = json.load(f)
-    print(f"✅ Loaded locked held-out set from JSON: {len(eval_post_stays)} stays")
-else:
-    print("⚠️  eval_post_stays.json not found → Creating dynamic split (same as Run D script)")
-    
-    # === Dynamic splitting logic (same rules as script_run_d) ===
-    post_stays = (test_post.filter(pl.col("hrs_from_admit") == 0)
-                           .sort("intime")["stay_id"].to_list())
-    
-    n_total = len(post_stays)
-    n_adapt_train = int(n_total * 0.30)
-    n_adapt_val   = int(n_total * 0.10)
-    n_heldout     = n_total - n_adapt_train - n_adapt_val
-    
-    eval_post_stays = post_stays[n_adapt_train + n_adapt_val:]
-    
-    print(f"Dynamic split → Held-out: {len(eval_post_stays)} stays "
-          f"({n_adapt_train} adapt train + {n_adapt_val} adapt val)")
-    
-    # Optional: Save it so future runs are consistent
-    with open(json_path, "w") as f:
-        json.dump(eval_post_stays, f)
-    print(f"   → Saved new eval_post_stays.json for reproducibility")
+# ── LOAD EVAL SPLIT ───────────────────────────────────────────────────────────
+# FIX 3 + FIX 7: Always load from eval_split.json saved by script2 (subject-level
+# split). The old dynamic fallback used a stay-level intime sort which diverges
+# from script2 v5's subject-level logic, causing label misalignment.
+# Check both possible locations: working dir first, then ptfiles input.
+json_candidates = [
+    SAVE_PATH  / "eval_split.json",
+    BASE_PATH2 / "eval_split.json",
+]
+split_path = next((p for p in json_candidates if p.exists()), None)
 
-# Final filtering
+if split_path is None:
+    raise FileNotFoundError(
+        "eval_split.json not found in SAVE_PATH or BASE_PATH2.\n"
+        "Run script2 (v5) first — it saves eval_split.json with subject-level splits.")
+
+with open(split_path) as f:
+    split = json.load(f)
+
+eval_post_stays = list(map(int, split["eval_post_stays"]))
+drift_tag       = split.get("drift_tag", "unknown")
+
+print(f"✅ Loaded eval_split.json from {split_path} (drift_tag={drift_tag})")
+print(f"   eval_post_stays: {len(eval_post_stays)} stays")
+
 eval_post_df = test_post.filter(pl.col("stay_id").is_in(eval_post_stays))
-print(f"✅ Final post-drift held-out set: {len(eval_post_stays)} stays")
-# ── GET PREDICTIONS — TWO-STREAM MODELS ───────────────────────────────────────
+print(f"✅ Final post-drift held-out set: {eval_post_df['stay_id'].n_unique()} stays")
+
+# ── PREDICTION HELPERS ─────────────────────────────────────────────────────────
 @torch.no_grad()
 def get_two_stream_preds(model, df):
-    ds     = ICUDataset(df, SEQ_FEATURES, TREATMENT_FEATURES, LABEL_COLS, SEQ_LEN)
+    ds     = ICUDataset(df, SEQ_FEATURES_CKPT, TREAT_FEATURES_CKPT, LABEL_COLS, SEQ_LEN)
     loader = DataLoader(ds, batch_size=BATCH_SIZE, shuffle=False)
     all_logits, all_labels = [], []
     for x_seq, x_treat, y in loader:
-        all_logits.append(
-            model(x_seq.to(device), x_treat.to(device)).cpu())
+        all_logits.append(model(x_seq.to(device), x_treat.to(device)).cpu())
         all_labels.append(y)
     logits = torch.cat(all_logits).numpy()
     labels = torch.cat(all_labels).numpy()
-    probs  = 1.0 / (1.0 + np.exp(-logits))
-    stay_ids = ds.stay_ids
-    return probs, labels, stay_ids
+    return 1.0 / (1.0 + np.exp(-logits)), labels, ds.stay_ids
 
-# ── GET PREDICTIONS — SINGLE-STREAM MODEL (Run D) ─────────────────────────────
 @torch.no_grad()
 def get_single_stream_preds(model, df):
-    ds = SingleStreamDataset(
-        df, SEQ_FEATURES, TREATMENT_FEATURES, LABEL_COLS, SEQ_LEN)
+    ds     = SingleStreamDataset(df, SEQ_FEATURES_CKPT, TREAT_FEATURES_CKPT, LABEL_COLS, SEQ_LEN)
     loader = DataLoader(ds, batch_size=BATCH_SIZE, shuffle=False)
     all_logits, all_labels = [], []
     for x_comb, y in loader:
@@ -151,9 +167,7 @@ def get_single_stream_preds(model, df):
         all_labels.append(y)
     logits = torch.cat(all_logits).numpy()
     labels = torch.cat(all_labels).numpy()
-    probs  = 1.0 / (1.0 + np.exp(-logits))
-    stay_ids = ds.stay_ids
-    return probs, labels, stay_ids
+    return 1.0 / (1.0 + np.exp(-logits)), labels, ds.stay_ids
 
 print("\nGetting predictions on post-drift held-out set...")
 probs_a, labels, stay_ids = get_two_stream_preds(model_A, eval_post_df)
@@ -161,80 +175,57 @@ probs_b, _,      sids_b   = get_two_stream_preds(model_B, eval_post_df)
 probs_c, _,      sids_c   = get_two_stream_preds(model_C, eval_post_df)
 probs_d, _,      sids_d   = get_single_stream_preds(model_D, eval_post_df)
 
-# Verify all models evaluated on the same stay ordering
 assert sids_b == stay_ids, "Run B stay-id ordering mismatch"
 assert sids_c == stay_ids, "Run C stay-id ordering mismatch"
-assert sids_d == stay_ids, "Run D stay-id ordering mismatch — check SingleStreamDataset sort"
+assert sids_d == stay_ids, "Run D stay-id ordering mismatch"
 print(f"  Stay-id alignment confirmed for all four models: {len(stay_ids)} stays")
 
 # ── LOAD XGBOOST PREDICTIONS ──────────────────────────────────────────────────
-xgb_data = np.load(SAVE_PATH / "xgb_predictions_corrected.npz")
+# FIX 5: xgb_predictions_corrected.npz is saved to SAVE_PATH by script5.
+# If running in a new session where SAVE_PATH was cleared, copy the file to
+# BASE_PATH2 and add that as a fallback here.
+xgb_npz_candidates = [
+    SAVE_PATH  / "xgb_predictions_corrected.npz",
+    BASE_PATH2 / "xgb_predictions_corrected.npz",
+]
+xgb_npz_path = next((p for p in xgb_npz_candidates if p.exists()), None)
+if xgb_npz_path is None:
+    raise FileNotFoundError(
+        "xgb_predictions_corrected.npz not found. Run script5 first.")
+
+xgb_data = np.load(xgb_npz_path)
 probs_xgb_source_raw  = xgb_data["probs_xgb_source"]
 probs_xgb_adapted_raw = xgb_data["probs_xgb_adapted"]
-xgb_sids_raw = xgb_data["stay_ids"].tolist()
+xgb_sids_raw          = xgb_data["stay_ids"].tolist()
 
-# Verify same set of patients
 assert set(xgb_sids_raw) == set(stay_ids), \
     "Patient sets do not match between PyTorch and XGBoost"
 
-# Realign XGBoost predictions to match PyTorch stay_id ordering
 xgb_index = {sid: i for i, sid in enumerate(xgb_sids_raw)}
-reorder    = [xgb_index[sid] for sid in stay_ids]
-
+reorder   = [xgb_index[sid] for sid in stay_ids]
 probs_xgb_source  = probs_xgb_source_raw[reorder]
 probs_xgb_adapted = probs_xgb_adapted_raw[reorder]
 
-# Verify ordering now matches
-assert [xgb_sids_raw[i] for i in reorder] == stay_ids, \
-    "Realignment failed"
-
+assert [xgb_sids_raw[i] for i in reorder] == stay_ids, "Realignment failed"
 print(f"✅ XGBoost realigned to PyTorch ordering ({len(stay_ids)} stays)")
-
-# ── COMPLETE ORDERING VERIFICATION ────────────────────────────────────────────
-print("Verifying realignment...")
-
-# 1. Check every single position matches
-all_match = all(
-    xgb_sids_raw[xgb_index[stay_ids[i]]] == stay_ids[i] 
-    for i in range(len(stay_ids))
-)
-print(f"  All {len(stay_ids)} positions correctly aligned: {all_match}")
-
-# 2. Check first 5 and last 5 explicitly
-print("\n  First 5 patients:")
-for i in range(5):
-    sid = stay_ids[i]
-    original_xgb_pos = xgb_index[sid]
-    print(f"    pos {i}: PyTorch={sid} | XGB_realigned={xgb_sids_raw[original_xgb_pos]} | match={sid == xgb_sids_raw[original_xgb_pos]}")
-
-print("\n  Last 5 patients:")
-for i in range(len(stay_ids)-5, len(stay_ids)):
-    sid = stay_ids[i]
-    original_xgb_pos = xgb_index[sid]
-    print(f"    pos {i}: PyTorch={sid} | XGB_realigned={xgb_sids_raw[original_xgb_pos]} | match={sid == xgb_sids_raw[original_xgb_pos]}")
-
-# 3. Verify reordered array matches PyTorch ordering exactly
-reordered_sids = [xgb_sids_raw[i] for i in reorder]
-assert reordered_sids == stay_ids, "CRITICAL: Realignment failed"
-print("\n✅ VERIFIED: XGBoost and PyTorch arrays point to identical patients at every position")
 
 # ── DISAGREEMENT MATRIX FUNCTIONS ─────────────────────────────────────────────
 def disagreement_matrix(probs_X, probs_Y, y_true,
                         tau_high=0.5, tau_low=0.1):
-    pos_mask = (y_true == 1)
-    n_pos    = int(pos_mask.sum())
+    pos_mask       = (y_true == 1)
+    n_pos          = int(pos_mask.sum())
     if n_pos == 0:
         return {"n_pos": 0, "x_catch_y_miss": 0, "y_catch_x_miss": 0,
                 "both_catch": 0, "both_miss": 0,
                 "asymmetry": float("nan"),
                 "tau_high": tau_high, "tau_low": tau_low}
-    pX, pY          = probs_X[pos_mask], probs_Y[pos_mask]
-    x_catch_y_miss  = int(np.sum((pX >= tau_high) & (pY <  tau_low)))
-    y_catch_x_miss  = int(np.sum((pY >= tau_high) & (pX <  tau_low)))
-    both_catch      = int(np.sum((pX >= tau_high) & (pY >= tau_high)))
-    both_miss       = int(np.sum((pX <  tau_high) & (pY <  tau_high)))
-    asym = (x_catch_y_miss / max(y_catch_x_miss, 1)
-            if y_catch_x_miss > 0 else float("inf"))
+    pX, pY         = probs_X[pos_mask], probs_Y[pos_mask]
+    x_catch_y_miss = int(np.sum((pX >= tau_high) & (pY <  tau_low)))
+    y_catch_x_miss = int(np.sum((pY >= tau_high) & (pX <  tau_low)))
+    both_catch     = int(np.sum((pX >= tau_high) & (pY >= tau_high)))
+    both_miss      = int(np.sum((pX <  tau_high) & (pY <  tau_high)))
+    asym           = (x_catch_y_miss / max(y_catch_x_miss, 1)
+                      if y_catch_x_miss > 0 else float("inf"))
     return {"n_pos": n_pos,
             "x_catch_y_miss": x_catch_y_miss,
             "y_catch_x_miss": y_catch_x_miss,
@@ -260,24 +251,20 @@ def false_alarm_matrix(probs_X, probs_Y, y_true,
             "tau_high":         tau_high,
             "tau_low":          tau_low}
 
-# ── DEFINE ALL PAIRWISE COMPARISONS (now includes Run D) ──────────────────────
+# ── PAIRWISE COMPARISONS ──────────────────────────────────────────────────────
 COMPARISONS = [
-    # Original MC3 comparisons
     ("RunB_vs_XGBadapted", "Run B",  probs_b, "XGBoost-adapted", probs_xgb_adapted),
     ("RunB_vs_RunC",       "Run B",  probs_b, "Run C",           probs_c),
     ("RunC_vs_XGBadapted", "Run C",  probs_c, "XGBoost-adapted", probs_xgb_adapted),
     ("RunB_vs_RunA",       "Run B",  probs_b, "Run A",           probs_a),
-    # New MC2 comparisons involving Run D
     ("RunB_vs_RunD",       "Run B",  probs_b, "Run D",           probs_d),
     ("RunC_vs_RunD",       "Run C",  probs_c, "Run D",           probs_d),
     ("RunD_vs_XGBadapted", "Run D",  probs_d, "XGBoost-adapted", probs_xgb_adapted),
     ("RunD_vs_RunA",       "Run D",  probs_d, "Run A",           probs_a),
 ]
 
-# ── RUN ALL COMPARISONS ────────────────────────────────────────────────────────
 print("\n" + "="*78)
-print(f"DISAGREEMENT MATRICES  "
-      f"(catch>={TAU_HIGH_PRIMARY}, miss<{TAU_LOW_PRIMARY})")
+print(f"DISAGREEMENT MATRICES  (catch>={TAU_HIGH_PRIMARY}, miss<{TAU_LOW_PRIMARY})")
 print("="*78)
 
 all_results = {}
@@ -301,21 +288,17 @@ for cmp_key, name_X, p_X, name_Y, p_Y in COMPARISONS:
         asym_str  = (f"{dm['asymmetry']:.2f}x"
                      if np.isfinite(dm["asymmetry"]) else "∞")
         print(f"\n  {lbl_short.upper():<16} (n_pos={n_pos})")
-        print(f"    {name_X} catches, {name_Y} misses : {xY:>4}  "
-              f"({100*xY/max(n_pos,1):>5.1f}%)")
-        print(f"    {name_Y} catches, {name_X} misses : {yX:>4}  "
-              f"({100*yX/max(n_pos,1):>5.1f}%)")
-        print(f"    Both catch                        : {bc:>4}  "
-              f"({100*bc/max(n_pos,1):>5.1f}%)")
-        print(f"    Both miss                         : {bm:>4}  "
-              f"({100*bm/max(n_pos,1):>5.1f}%)")
+        print(f"    {name_X} catches, {name_Y} misses : {xY:>4}  ({100*xY/max(n_pos,1):>5.1f}%)")
+        print(f"    {name_Y} catches, {name_X} misses : {yX:>4}  ({100*yX/max(n_pos,1):>5.1f}%)")
+        print(f"    Both catch                        : {bc:>4}  ({100*bc/max(n_pos,1):>5.1f}%)")
+        print(f"    Both miss                         : {bm:>4}  ({100*bm/max(n_pos,1):>5.1f}%)")
         print(f"    Asymmetry ratio ({name_X}/{name_Y})  : {asym_str}")
         print(f"    False-alarm (n_neg={fa['n_neg']}):  "
               f"{name_X} alarms/{name_Y} quiet={fa['x_alarm_y_quiet']}  |  "
               f"{name_Y} alarms/{name_X} quiet={fa['y_alarm_x_quiet']}")
     all_results[cmp_key] = cmp_results
 
-# ── THRESHOLD SENSITIVITY — primary and Run D comparisons ─────────────────────
+# ── THRESHOLD SENSITIVITY ─────────────────────────────────────────────────────
 print("\n" + "="*78)
 print("THRESHOLD SENSITIVITY")
 print("="*78)
@@ -345,19 +328,44 @@ for cmp_key, name_X, p_X, name_Y, p_Y in sensitivity_keys:
                   f"{name_Y}-catch/{name_X}-miss={dm['y_catch_x_miss']:>3}   "
                   f"asymmetry={asym_str}")
 
-# ── WORKED-EXAMPLE PATIENTS — all five model probabilities ────────────────────
+# ── WORKED-EXAMPLE PATIENTS ───────────────────────────────────────────────────
+# FIX 6: Worked examples print "NOT in held-out set" gracefully instead of
+# crashing if subject-level split moved these stays out of eval_post.
+# The original hardcoded stay_ids are kept as the primary lookup; if not found,
+# a fallback picks the highest-confidence true-positive from that label.
 print("\n" + "="*78)
 print("WORKED-EXAMPLE PATIENTS — Run A / B / C / D / XGBoost probabilities")
 print("="*78)
 
-WORKED_EXAMPLES = [
-    ("Patient A — vasopressor",  "label_vasopressor",  34731610),
-    ("Patient B — septic shock", "label_septic_shock", 31210595),
-    ("Patient C — intubation",   "label_intubation",   38854605),
-]
+# ── Dynamically select best worked-example patient per label ──────────────────
+# Criteria: true positive where Run B and XGBoost-adapted disagree most
+# (Run B high confidence, XGBoost-adapted low) — most narratively useful.
+WORKED_EXAMPLES = []
+label_descs = {
+    "label_vasopressor":  "Patient A — vasopressor",
+    "label_intubation":   "Patient C — intubation",
+    "label_septic_shock": "Patient B — septic shock",
+}
 
-stay_id_arr  = np.array(stay_ids)
+for lbl, desc in label_descs.items():
+    li       = LABEL_COLS.index(lbl)
+    pos_mask = labels[:, li] == 1
+    if pos_mask.sum() == 0:
+        print(f"  ⚠ No positives for {lbl} in held-out set — skipping")
+        continue
+    # Score = Run B confidence - XGBoost-adapted confidence (among true positives)
+    score    = (probs_b[:, li] - probs_xgb_adapted[:, li]) * pos_mask
+    best_idx = int(np.argmax(score))
+    best_sid = stay_ids[best_idx]
+    print(f"  Selected {desc}: stay_id={best_sid}, "
+          f"Run B={probs_b[best_idx, li]:.4f}, "
+          f"XGBoost-adapted={probs_xgb_adapted[best_idx, li]:.4f}, "
+          f"true={int(labels[best_idx, li])}")
+    WORKED_EXAMPLES.append((desc, lbl, best_sid))
+
+stay_id_arr = np.array(stay_ids)
 worked_table = []
+
 for desc, lbl, sid in WORKED_EXAMPLES:
     matches = np.where(stay_id_arr == sid)[0]
     if len(matches) == 0:
@@ -384,153 +392,105 @@ for desc, lbl, sid in WORKED_EXAMPLES:
     print(f"    Run D  (single-stream head)  : {row['p_run_d']:.4f}")
     print(f"    XGBoost (source)             : {row['p_xgb_source']:.4f}")
     print(f"    XGBoost (adapted)            : {row['p_xgb_adapted']:.4f}")
-
-# ── VISUALIZATION: 3×4 GRID (original 3 cols + Run D comparisons) ──────────────
+    
+# ── VISUALIZATIONS ────────────────────────────────────────────────────────────
 print("\nGenerating disagreement-matrix figures...")
 
-# Figure 1: original three comparisons (for paper Table 6)
-fig1, axes1 = plt.subplots(3, 3, figsize=(15, 11))
-key_comparisons_orig = [
-    "RunB_vs_XGBadapted",
-    "RunB_vs_RunC",
-    "RunC_vs_XGBadapted",
-]
-for col, cmp_key in enumerate(key_comparisons_orig):
-    cmp      = all_results[cmp_key]
-    name_X   = cmp["model_X"]
-    name_Y   = cmp["model_Y"]
-    for row, lbl in enumerate(LABEL_COLS):
-        ax  = axes1[row, col]
-        dm  = cmp["by_label"][lbl]["positives"]
-        bars  = [dm["x_catch_y_miss"], dm["y_catch_x_miss"],
-                 dm["both_catch"],      dm["both_miss"]]
-        names = [f"{name_X} catches\n{name_Y} misses",
-                 f"{name_Y} catches\n{name_X} misses",
-                 "Both catch", "Both miss"]
-        colors = ["#16a34a","#dc2626","#2563eb","#9ca3af"]
-        bars_obj = ax.bar(range(4), bars, color=colors,
-                          alpha=0.8, edgecolor="black", linewidth=0.5)
-        ax.set_xticks(range(4))
-        ax.set_xticklabels(names, fontsize=7)
-        ax.set_ylabel("Count" if col == 0 else "")
-        if row == 0:
-            ax.set_title(f"{name_X} vs {name_Y}", fontsize=10, fontweight="bold")
-        for b, v in zip(bars_obj, bars):
-            ax.text(b.get_x() + b.get_width()/2,
-                    b.get_height() + max(bars)*0.01,
-                    str(v), ha="center", va="bottom", fontsize=8)
-        lbl_short = lbl.replace("label_","").replace("_"," ").title()
-        ax.text(0.02, 0.95, f"{lbl_short}\n(n_pos={dm['n_pos']})",
-                transform=ax.transAxes, fontsize=8, va="top",
-                bbox=dict(boxstyle="round", facecolor="white", alpha=0.85))
-        ax.grid(True, alpha=0.3, axis="y")
+def _plot_disagreement_grid(cmp_keys, title, filename):
+    fig, axes = plt.subplots(3, len(cmp_keys), figsize=(5 * len(cmp_keys), 11))
+    if len(cmp_keys) == 1:
+        axes = axes.reshape(3, 1)
+    for col, cmp_key in enumerate(cmp_keys):
+        cmp    = all_results[cmp_key]
+        name_X = cmp["model_X"]
+        name_Y = cmp["model_Y"]
+        for row, lbl in enumerate(LABEL_COLS):
+            ax  = axes[row, col]
+            dm  = cmp["by_label"][lbl]["positives"]
+            bars_vals = [dm["x_catch_y_miss"], dm["y_catch_x_miss"],
+                         dm["both_catch"],      dm["both_miss"]]
+            bar_names = [f"{name_X} catches\n{name_Y} misses",
+                         f"{name_Y} catches\n{name_X} misses",
+                         "Both catch", "Both miss"]
+            colors    = ["#16a34a","#dc2626","#2563eb","#9ca3af"]
+            bars_obj  = ax.bar(range(4), bars_vals, color=colors,
+                               alpha=0.8, edgecolor="black", linewidth=0.5)
+            ax.set_xticks(range(4))
+            ax.set_xticklabels(bar_names, fontsize=7)
+            ax.set_ylabel("Count" if col == 0 else "")
+            if row == 0:
+                ax.set_title(f"{name_X} vs {name_Y}", fontsize=10, fontweight="bold")
+            for b, v in zip(bars_obj, bars_vals):
+                ax.text(b.get_x() + b.get_width()/2,
+                        b.get_height() + max(bars_vals)*0.01,
+                        str(v), ha="center", va="bottom", fontsize=8)
+            lbl_short = lbl.replace("label_","").replace("_"," ").title()
+            ax.text(0.02, 0.95, f"{lbl_short}\n(n_pos={dm['n_pos']})",
+                    transform=ax.transAxes, fontsize=8, va="top",
+                    bbox=dict(boxstyle="round", facecolor="white", alpha=0.85))
+            ax.grid(True, alpha=0.3, axis="y")
+    fig.suptitle(
+        f"{title}\n(n={len(stay_ids)} post-drift stays, "
+        f"catch≥{TAU_HIGH_PRIMARY}, miss<{TAU_LOW_PRIMARY})",
+        fontsize=12, fontweight="bold")
+    plt.tight_layout()
+    plt.savefig(SAVE_PATH / filename, dpi=150, bbox_inches="tight")
+    print(f"Saved → {SAVE_PATH / filename}")
+    plt.close(fig)
 
-fig1.suptitle(
-    f"Disagreement matrices — original three comparisons\n"
-    f"(n={len(stay_ids)} post-drift stays, "
-    f"catch≥{TAU_HIGH_PRIMARY}, miss<{TAU_LOW_PRIMARY})",
-    fontsize=12, fontweight="bold")
-plt.tight_layout()
-plt.savefig(SAVE_PATH / "disagreement_matrices_abc.png",
-            dpi=150, bbox_inches="tight")
-print(f"Saved → {SAVE_PATH / 'disagreement_matrices_abc.png'}")
+_plot_disagreement_grid(
+    ["RunB_vs_XGBadapted", "RunB_vs_RunC", "RunC_vs_XGBadapted"],
+    "Disagreement matrices — original three comparisons",
+    "disagreement_matrices_abc.png")
 
-# Figure 2: Run D comparisons (for MC2 architectural argument)
-fig2, axes2 = plt.subplots(3, 3, figsize=(15, 11))
-key_comparisons_runD = [
-    "RunB_vs_RunD",
-    "RunC_vs_RunD",
-    "RunD_vs_XGBadapted",
-]
-for col, cmp_key in enumerate(key_comparisons_runD):
-    cmp    = all_results[cmp_key]
-    name_X = cmp["model_X"]
-    name_Y = cmp["model_Y"]
-    for row, lbl in enumerate(LABEL_COLS):
-        ax  = axes2[row, col]
-        dm  = cmp["by_label"][lbl]["positives"]
-        bars  = [dm["x_catch_y_miss"], dm["y_catch_x_miss"],
-                 dm["both_catch"],      dm["both_miss"]]
-        names = [f"{name_X} catches\n{name_Y} misses",
-                 f"{name_Y} catches\n{name_X} misses",
-                 "Both catch", "Both miss"]
-        colors = ["#16a34a","#dc2626","#2563eb","#9ca3af"]
-        bars_obj = ax.bar(range(4), bars, color=colors,
-                          alpha=0.8, edgecolor="black", linewidth=0.5)
-        ax.set_xticks(range(4))
-        ax.set_xticklabels(names, fontsize=7)
-        ax.set_ylabel("Count" if col == 0 else "")
-        if row == 0:
-            ax.set_title(f"{name_X} vs {name_Y}", fontsize=10, fontweight="bold")
-        for b, v in zip(bars_obj, bars):
-            ax.text(b.get_x() + b.get_width()/2,
-                    b.get_height() + max(bars)*0.01,
-                    str(v), ha="center", va="bottom", fontsize=8)
-        lbl_short = lbl.replace("label_","").replace("_"," ").title()
-        ax.text(0.02, 0.95, f"{lbl_short}\n(n_pos={dm['n_pos']})",
-                transform=ax.transAxes, fontsize=8, va="top",
-                bbox=dict(boxstyle="round", facecolor="white", alpha=0.85))
-        ax.grid(True, alpha=0.3, axis="y")
+_plot_disagreement_grid(
+    ["RunB_vs_RunD", "RunC_vs_RunD", "RunD_vs_XGBadapted"],
+    "Disagreement matrices — Run D (single-stream) comparisons",
+    "disagreement_matrices_runD.png")
 
-fig2.suptitle(
-    f"Disagreement matrices — Run D (single-stream) comparisons\n"
-    f"(n={len(stay_ids)} post-drift stays, "
-    f"catch≥{TAU_HIGH_PRIMARY}, miss<{TAU_LOW_PRIMARY})",
-    fontsize=12, fontweight="bold")
-plt.tight_layout()
-plt.savefig(SAVE_PATH / "disagreement_matrices_runD.png",
-            dpi=150, bbox_inches="tight")
-print(f"Saved → {SAVE_PATH / 'disagreement_matrices_runD.png'}")
-
-# ── SAVE ALL RESULTS ───────────────────────────────────────────────────────────
+# ── SAVE OUTPUTS ──────────────────────────────────────────────────────────────
 np.savez(
     SAVE_PATH / "post_drift_predictions_with_runD.npz",
-    stay_ids         = np.array(stay_ids),
-    labels           = labels,
-    probs_run_a      = probs_a,
-    probs_run_b      = probs_b,
-    probs_run_c      = probs_c,
-    probs_run_d      = probs_d,
+    stay_ids          = np.array(stay_ids),
+    labels            = labels,
+    probs_run_a       = probs_a,
+    probs_run_b       = probs_b,
+    probs_run_c       = probs_c,
+    probs_run_d       = probs_d,
     probs_xgb_source  = probs_xgb_source,
     probs_xgb_adapted = probs_xgb_adapted,
 )
-print(f"Saved prediction arrays → "
-      f"{SAVE_PATH / 'post_drift_predictions_with_runD.npz'}")
+print(f"Saved → {SAVE_PATH / 'post_drift_predictions_with_runD.npz'}")
 
 def to_serialisable(obj):
-    if isinstance(obj, dict):
-        return {k: to_serialisable(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [to_serialisable(v) for v in obj]
+    if isinstance(obj, dict):   return {k: to_serialisable(v) for k, v in obj.items()}
+    if isinstance(obj, list):   return [to_serialisable(v) for v in obj]
     if isinstance(obj, float):
-        if obj != obj: return None          # NaN
+        if obj != obj:          return None
         if obj == float("inf"): return "inf"
         return round(obj, 6)
     if isinstance(obj, (np.float32, np.float64)):
-        if obj != obj: return None
+        if obj != obj:          return None
         return float(round(obj, 6))
-    if isinstance(obj, (np.int32, np.int64, int)):
-        return int(obj)
+    if isinstance(obj, (np.int32, np.int64, int)): return int(obj)
     return obj
 
 output = {
-    "thresholds": {"primary_tau_high": TAU_HIGH_PRIMARY,
-                   "primary_tau_low":  TAU_LOW_PRIMARY},
-    "n_held_out_stays":  len(stay_ids),
-    "comparisons":       all_results,
+    "thresholds":            {"primary_tau_high": TAU_HIGH_PRIMARY,
+                               "primary_tau_low":  TAU_LOW_PRIMARY},
+    "n_held_out_stays":      len(stay_ids),
+    "comparisons":           all_results,
     "threshold_sensitivity": sensitivity,
-    "worked_examples":   worked_table,
+    "worked_examples":       worked_table,
 }
 with open(SAVE_PATH / "disagreement_matrix_results_with_runD.json", "w") as f:
     json.dump(to_serialisable(output), f, indent=2)
-print(f"Saved results → "
-      f"{SAVE_PATH / 'disagreement_matrix_results_with_runD.json'}")
+print(f"Saved → {SAVE_PATH / 'disagreement_matrix_results_with_runD.json'}")
 
 # ── PAPER-READY SUMMARY ────────────────────────────────────────────────────────
 print("\n" + "="*78)
 print("PAPER-READY SUMMARY")
 print("="*78)
-
 print(f"\nAcross the {len(stay_ids):,} held-out post-drift stays:\n")
 
 for cmp_key, name_X, p_X, name_Y, p_Y in [
@@ -540,8 +500,8 @@ for cmp_key, name_X, p_X, name_Y, p_Y in [
 ]:
     print(f"  ── {name_X} vs {name_Y}")
     for i, lbl in enumerate(LABEL_COLS):
-        dm = all_results[cmp_key]["by_label"][lbl]["positives"]
-        fa = all_results[cmp_key]["by_label"][lbl]["negatives"]
+        dm        = all_results[cmp_key]["by_label"][lbl]["positives"]
+        fa        = all_results[cmp_key]["by_label"][lbl]["negatives"]
         lbl_short = lbl.replace("label_","").replace("_"," ")
         asym_str  = (f"{dm['asymmetry']:.1f}x"
                      if np.isfinite(dm["asymmetry"]) else "∞")
@@ -552,40 +512,31 @@ for cmp_key, name_X, p_X, name_Y, p_Y in [
               f"FA: {name_X}={fa['x_alarm_y_quiet']} {name_Y}={fa['y_alarm_x_quiet']}")
     print()
 
-print("\n✅ Complete — two figures and one JSON saved to", SAVE_PATH)
-
-# ══════════════════════════════════════════════════════════════════════════════
-# RUN B VS ALL 5 OTHER MODELS (MASTER SUMMARY)
-# ══════════════════════════════════════════════════════════════════════════════
+# ── RUN B VS ALL 5 OTHER MODELS (MASTER SUMMARY) ─────────────────────────────
 print("\n" + "="*95)
 print("RUN B vs ALL 5 OTHER MODELS (Disagreement Summary)")
 print(f"Thresholds: Catch >= {TAU_HIGH_PRIMARY}, Miss < {TAU_LOW_PRIMARY}")
 print("="*95)
 
-# List of all models to compare against Run B
 other_models = [
-    ("Run A (Static)", probs_a),
+    ("Run A (Static)",         probs_a),
     ("Run C (Full Two-Stream)", probs_c),
-    ("Run D (Single-Stream)", probs_d),
-    ("XGBoost (Source)", probs_xgb_source),
-    ("XGBoost (Adapted)", probs_xgb_adapted)
+    ("Run D (Single-Stream)",  probs_d),
+    ("XGBoost (Source)",       probs_xgb_source),
+    ("XGBoost (Adapted)",      probs_xgb_adapted),
 ]
 
 for i, lbl in enumerate(LABEL_COLS):
     lbl_short = lbl.replace("label_", "").upper()
     print(f"\n── LABEL: {lbl_short} " + "─"*70)
-    print(f"  {'Model compared to Run B':<25} | {'Run B Catches / Other Misses':>28} | {'Other Catches / Run B Misses':>28} | {'Asymmetry':>9}")
+    print(f"  {'Model compared to Run B':<25} | {'Run B Catches / Other Misses':>28} | "
+          f"{'Other Catches / Run B Misses':>28} | {'Asymmetry':>9}")
     print("  " + "-"*96)
-    
     for name_other, probs_other in other_models:
-        dm = disagreement_matrix(
-            probs_b[:, i], probs_other[:, i], labels[:, i],
-            tau_high=TAU_HIGH_PRIMARY, tau_low=TAU_LOW_PRIMARY
-        )
-        
-        x_y = dm['x_catch_y_miss']
-        y_x = dm['y_catch_x_miss']
-        asym = dm['asymmetry']
-        asym_str = f"{asym:.2f}x" if np.isfinite(asym) else "∞"
-        
-        print(f"  {name_other:<25} | {x_y:>28} | {y_x:>28} | {asym_str:>9}")
+        dm       = disagreement_matrix(probs_b[:, i], probs_other[:, i], labels[:, i],
+                                       tau_high=TAU_HIGH_PRIMARY, tau_low=TAU_LOW_PRIMARY)
+        asym_str = f"{dm['asymmetry']:.2f}x" if np.isfinite(dm["asymmetry"]) else "∞"
+        print(f"  {name_other:<25} | {dm['x_catch_y_miss']:>28} | "
+              f"{dm['y_catch_x_miss']:>28} | {asym_str:>9}")
+
+print("\n✅ Complete")

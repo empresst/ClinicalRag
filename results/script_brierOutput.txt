@@ -1,0 +1,50 @@
+Label alignment verified across both npz files
+   Patients: 5749 | Labels: 3
+
+========================================================================
+POST-DRIFT HELD-OUT — AUROC
+========================================================================
+  Model                       vasopressor     intubation   septic_shock
+  ------------------------------------------------------------------
+  Run A (static)                   0.8233         0.9367         0.9296
+  Run B (partial adapt)            0.8947         0.9403         0.9599
+  Run C (full adapt)               0.8779         0.9435         0.9533
+  XGBoost (source)                 0.9148         0.9475         0.9367
+  XGBoost (adapted)                0.9330         0.9413         0.9404
+
+========================================================================
+POST-DRIFT HELD-OUT — AUPRC
+========================================================================
+  Model                       vasopressor     intubation   septic_shock
+  ------------------------------------------------------------------
+  Run A (static)                   0.4187         0.8475         0.3100
+  Run B (partial adapt)            0.6182         0.8558         0.4131
+  Run C (full adapt)               0.5714         0.8632         0.3775
+  XGBoost (source)                 0.6487         0.8757         0.3313
+  XGBoost (adapted)                0.6612         0.8586         0.2600
+
+========================================================================
+POST-DRIFT HELD-OUT — BRIER SCORE  (lower = better)
+========================================================================
+  Model                       vasopressor     intubation   septic_shock
+  ------------------------------------------------------------------
+  Run A (static)                   0.1861         0.1223         0.0613
+  Run B (partial adapt)            0.1241         0.1016         0.0184
+  Run C (full adapt)               0.1307         0.0954         0.0167
+  XGBoost (source)                 0.0770         0.0869         0.0123
+  XGBoost (adapted)                0.0529         0.0816         0.0116
+
+========================================================================
+BRIER DELTA vs Run A  (negative = better than Run A)
+========================================================================
+  Model                       vasopressor     intubation   septic_shock
+  ------------------------------------------------------------------
+  Run B (partial adapt)           -0.0620        -0.0207        -0.0429
+  Run C (full adapt)              -0.0554        -0.0269        -0.0446
+  XGBoost (source)                -0.1091        -0.0354        -0.0490
+  XGBoost (adapted)               -0.1332        -0.0407        -0.0497
+
+  n_pos per label (same for all models):
+    label_vasopressor: 554
+    label_intubation: 1657
+    label_septic_shock: 76

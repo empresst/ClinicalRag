@@ -1,0 +1,338 @@
+Device: cpu
+⚠ No NCBI_API_KEY — 3 req/sec
+======================================================================
+Loading split, models, data
+======================================================================
+✅ Split | drift_tag=2020 - 2022 | pre=30641 | post_eval=5749
+✅ Models loaded: seq=86 treat=12 targets=3
+✅ Data | pre=30641 post=5749 patients
+✅ XGBoost adapted models loaded for 3 labels
+✅ XGBoost TreeExplainers cached for 3 labels
+✅ Corpus window derived from drift_tag='2020 - 2022': 2009/01/01 – 2019/12/31
+
+======================================================================
+Fetching PubMed corpus (fixed, patient-independent)
+======================================================================
+  '"Critical Care"[MeSH]...' → 200 pmids fetched
+  '"Intensive Care Units"[MeSH]...' → 200 pmids fetched
+  '"Sepsis"[MeSH]...' → 150 pmids fetched
+  '"Shock, Septic"[MeSH]...' → 150 pmids fetched
+  '"Respiration, Artificial"[MeSH]...' → 150 pmids fetched
+  '"Vasoconstrictor Agents"[MeSH] AND "Critical Care"[MeSH]...' → 100 pmids fetched
+  '"Ventilator Weaning"[MeSH]...' → 100 pmids fetched
+  '"Anti-Bacterial Agents"[MeSH] AND "Critical Care"[MeSH]...' → 100 pmids fetched
+
+✅ Corpus: 871 unique abstracts
+✅ Saved corpus → /kaggle/working/pubmed_corpus.json
+
+======================================================================
+Building semantic index
+======================================================================
+config.json: 100%|█████████████████████████████| 608/608 [00:00<00:00, 2.23MB/s]
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+tokenizer_config.json: 1.49kB [00:00, 3.39MB/s]
+vocab.txt: 226kB [00:00, 26.1MB/s]
+tokenizer.json: 706kB [00:00, 90.2MB/s]
+added_tokens.json: 100%|██████████████████████| 74.0/74.0 [00:00<00:00, 352kB/s]
+special_tokens_map.json: 100%|██████████████████| 125/125 [00:00<00:00, 472kB/s]
+model.safetensors: 100%|██████████████████████| 438M/438M [00:04<00:00, 102MB/s]
+Loading weights: 100%|█| 199/199 [00:00<00:00, 1306.34it/s, Materializing param=
+config.json: 100%|█████████████████████████████| 608/608 [00:00<00:00, 1.88MB/s]
+tokenizer_config.json: 1.49kB [00:00, 2.86MB/s]
+vocab.txt: 226kB [00:00, 76.5MB/s]
+tokenizer.json: 706kB [00:00, 113MB/s]
+added_tokens.json: 100%|██████████████████████| 74.0/74.0 [00:00<00:00, 327kB/s]
+special_tokens_map.json: 100%|██████████████████| 125/125 [00:00<00:00, 582kB/s]
+model.safetensors:  61%|████████████▊        | 268M/438M [00:02<00:01, 90.3MB/s]
+Loading weights: 100%|█| 199/199 [00:00<00:00, 1408.79it/s, Materializing param=
+✅ Retriever: MedCPT (NCBI query+article encoders) — cosine
+Embedding 522 passages...
+    MedCPT corpus 32/522
+    MedCPT corpus 192/522
+    MedCPT corpus 352/522
+    MedCPT corpus 512/522
+  Shape: (522, 768)
+
+Flattening post-drift data for XGBoost...
+  XGBoost feature matrix: (5749, 282)
+
+======================================================================
+Running retrieval stability evaluation
+======================================================================
+
+  label_vasopressor: 100 cases
+
+  label_intubation: 100 cases
+
+  label_septic_shock: 100 cases
+
+✅ Processed 300 cases
+
+======================================================================
+RETRIEVAL STABILITY RESULTS
+======================================================================
+
+── Overall (all labels, all patients) ──────────────────────────────
+
+Metric                                  Run B vs Source  XGB vs Source
+──────────────────────────────────────────────────────────────────────
+  Jaccard (physio stream)                       0.573          0.330
+  Jaccard (treatment stream)                    0.540          0.448
+  Jaccard (merged)                              0.438          0.323
+  Rank corr (physio)                            0.465          0.131
+  Rank corr (treatment)                         0.592          0.439
+  Query token Jaccard (physio)                  0.729          0.341
+  Query token Jaccard (treat)                   0.717          0.602
+
+  NOTE — rank correlation NaN disclosure:
+  Run B:    computed on 241/300 cases
+  XGBoost:  computed on 137/300 cases (upward-biased — NaN cases are those with zero PMID overlap, i.e. the most divergent cases, which are excluded)
+
+── Per-label breakdown ─────────────────────────────────────────────
+
+  Label                   Jacc-P(B)  Jacc-P(X)  Jacc-T(B)  Jacc-T(X)     n
+  ───────────────────────────────────────────────────────────────────
+  label_vasopressor           0.485      0.260      0.515      0.432   100
+  label_intubation            0.619      0.293      0.465      0.353   100
+  label_septic_shock          0.614      0.438      0.640      0.558   100
+
+── Attribution mass (physiology stream) ────────────────────────────
+  Source mean |IG|:    0.0530
+  Run B mean  |IG|:    0.0905
+  XGB mean   |SHAP|:   0.0212
+  Run B physio delta:  0.0380  (mean |B − Source| per patient)
+  XGB  physio delta:   0.0320  (mean |XGB − Source| per patient)
+
+── Attribution delta → Retrieval divergence (Spearman r) ──────────
+  Run B:    r=-0.197  p=0.0006  (attribution delta vs physio retrieval divergence)
+  XGBoost:  r=-0.169  p=0.0033
+  Interpretation: r > 0 means larger attribution shift → more
+  divergent document retrieval. Expected stronger for XGBoost
+  (biological amnesia) than for Run B (frozen physiology).
+  Run B r < 0: frozen LSTM decouples attribution magnitude from
+  retrieval — residual delta comes from fusion head, not physio
+  features, so retrieval remains anchored to source documents.
+
+── Per-label attribution delta → divergence correlation ────────
+  label_vasopressor      RunB r=-0.001 p=0.9912 | XGB r=-0.108 p=0.2842
+  label_intubation       RunB r=-0.276 p=0.0054 | XGB r=-0.186 p=0.0637
+  label_septic_shock     RunB r=-0.172 p=0.0874 | XGB r=+0.115 p=0.2550
+
+======================================================================
+SAMPLE RETRIEVALS  (best true-positive per label)
+======================================================================
+
+──────────────────────────────────────────────────────────────────────
+Stay 35773744 | label_vasopressor | true=1  ✅ TRUE POSITIVE (39 qualifying)
+  Probs: source=0.792  RunB=0.904  XGB=0.155
+  Physio Jaccard: RunB=1.000  XGB=0.250  (Δ RunB−XGB=+0.750)
+  Treat  Jaccard: RunB=1.000  XGB=1.000
+  Merged Jaccard: RunB=1.000  XGB=0.250
+
+  Source physio query:  vasopressor ICU lactate lactate baseline diastolic blood pressure systolic blood pressure ph venous
+  Run B  physio query:  vasopressor ICU lactate baseline lactate diastolic blood pressure systolic blood pressure ph venous
+  XGB    query:         vasopressor ICU urine output systolic blood pressure gcs verbal diastolic blood pressure crystalloid prbc n distinct meds blood products
+
+  Source physio hits:
+    [1] yr=2015 sim=0.587 | Evaluation of Perfusion Index as a Predictor of Vasopressor Requi...
+    [2] yr=2019 sim=0.587 | Cardiovascular determinants of resuscitation from sepsis and sept...
+    [3] yr=2011 sim=0.582 | Vasopressor administration and sepsis: a survey of Canadian inten...
+    [4] yr=2018 sim=0.567 | Feasibility of automated titration of vasopressor infusions using...
+    [5] yr=2019 sim=0.563 | Blood pressure variability in surgical and intensive care patient...
+  Source treat  hits:
+    [1] yr=2009 sim=0.584 | Historical perspectives in critical care medicine: blood transfus...
+    [2] yr=2018 sim=0.575 | Patterns of vasopressor utilization during the resuscitation of m...
+    [3] yr=2018 sim=0.565 | Surviving Sepsis Campaign: Research Priorities for Sepsis and Sep...
+    [4] yr=2011 sim=0.564 | Vasoactive drugs in circulatory shock....
+    [5] yr=2017 sim=0.564 | Surviving Sepsis Campaign: International Guidelines for Managemen...
+
+  Run B  physio hits:
+    [1] yr=2015 sim=0.586 | Evaluation of Perfusion Index as a Predictor of Vasopressor Requi...
+    [2] yr=2019 sim=0.584 | Cardiovascular determinants of resuscitation from sepsis and sept...
+    [3] yr=2011 sim=0.580 | Vasopressor administration and sepsis: a survey of Canadian inten...
+    [4] yr=2018 sim=0.563 | Feasibility of automated titration of vasopressor infusions using...
+    [5] yr=2019 sim=0.560 | Blood pressure variability in surgical and intensive care patient...
+  Run B  treat  hits:
+    [1] yr=2009 sim=0.574 | Historical perspectives in critical care medicine: blood transfus...
+    [2] yr=2018 sim=0.565 | Patterns of vasopressor utilization during the resuscitation of m...
+    [3] yr=2011 sim=0.556 | Vasoactive drugs in circulatory shock....
+    [4] yr=2018 sim=0.556 | Surviving Sepsis Campaign: Research Priorities for Sepsis and Sep...
+    [5] yr=2017 sim=0.555 | Surviving Sepsis Campaign: International Guidelines for Managemen...
+
+  XGB    merged hits:
+    [1] yr=2009 sim=0.613 | Historical perspectives in critical care medicine: blood transfus...
+    [2] yr=2018 sim=0.599 | Patterns of vasopressor utilization during the resuscitation of m...
+    [3] yr=2018 sim=0.594 | Surviving Sepsis Campaign: Research Priorities for Sepsis and Sep...
+    [4] yr=2011 sim=0.594 | Vasoactive drugs in circulatory shock....
+    [5] yr=2017 sim=0.593 | Surviving Sepsis Campaign: International Guidelines for Managemen...
+
+──────────────────────────────────────────────────────────────────────
+Stay 31841598 | label_intubation | true=1  ✅ TRUE POSITIVE (44 qualifying)
+  Probs: source=0.890  RunB=0.926  XGB=0.960
+  Physio Jaccard: RunB=1.000  XGB=0.429  (Δ RunB−XGB=+0.571)
+  Treat  Jaccard: RunB=0.667  XGB=0.111
+  Merged Jaccard: RunB=0.429  XGB=0.111
+
+  Source physio query:  intubation ICU gcs verbal gcs eye bilirubin total baseline resp rate SpO2
+  Run B  physio query:  intubation ICU gcs verbal gcs eye resp rate heart rate SpO2
+  XGB    query:         intubation ICU gcs verbal gcs motor WBC SpO2 age n distinct meds time to first abx order antibiotic
+
+  Source physio hits:
+    [1] yr=2019 sim=0.557 | Bolus Dose Epinephrine Improves Blood Pressure but is Associated ...
+    [2] yr=2019 sim=0.555 | Rapidly Improving ARDS in Therapeutic Randomized Controlled Trial...
+    [3] yr=2017 sim=0.546 | Performance of the Obstetric Early Warning Score in critically il...
+    [4] yr=2019 sim=0.544 | Corticosteroids for treating sepsis in children and adults....
+    [5] yr=2019 sim=0.543 | Effect of Postextubation High-Flow Nasal Oxygen With Noninvasive ...
+  Source treat  hits:
+    [1] yr=2019 sim=0.573 | Evaluation and Predictors of Fluid Resuscitation in Patients With...
+    [2] yr=2019 sim=0.573 | Withholding or withdrawing invasive interventions may not acceler...
+    [3] yr=2019 sim=0.558 | Patient characteristics, ICU-specific supports, complications, an...
+    [4] yr=2019 sim=0.548 | Risk Factors at Index Hospitalization Associated With Longer-term...
+    [5] yr=2018 sim=0.544 | Enteral versus parenteral early nutrition in ventilated adults wi...
+
+  Run B  physio hits:
+    [1] yr=2019 sim=0.554 | Bolus Dose Epinephrine Improves Blood Pressure but is Associated ...
+    [2] yr=2017 sim=0.552 | Performance of the Obstetric Early Warning Score in critically il...
+    [3] yr=2019 sim=0.542 | Effect of Postextubation High-Flow Nasal Oxygen With Noninvasive ...
+    [4] yr=2019 sim=0.518 | Rapidly Improving ARDS in Therapeutic Randomized Controlled Trial...
+    [5] yr=2019 sim=0.518 | Corticosteroids for treating sepsis in children and adults....
+  Run B  treat  hits:
+    [1] yr=2019 sim=0.566 | Evaluation and Predictors of Fluid Resuscitation in Patients With...
+    [2] yr=2019 sim=0.553 | Withholding or withdrawing invasive interventions may not acceler...
+    [3] yr=2018 sim=0.527 | Enteral versus parenteral early nutrition in ventilated adults wi...
+    [4] yr=2019 sim=0.526 | Prevention of Early Ventilator-Associated Pneumonia after Cardiac...
+    [5] yr=2019 sim=0.526 | Risk Factors at Index Hospitalization Associated With Longer-term...
+
+  XGB    merged hits:
+    [1] yr=2019 sim=0.583 | Prevention of Early Ventilator-Associated Pneumonia after Cardiac...
+    [2] yr=2018 sim=0.582 | Antibiotic Timing and Outcomes in Sepsis....
+    [3] yr=2019 sim=0.581 | Withholding or withdrawing invasive interventions may not acceler...
+    [4] yr=2017 sim=0.569 | The intensive care medicine research agenda on multidrug-resistan...
+    [5] yr=2018 sim=0.566 | Antibiotic Use in the Intensive Care Unit: Optimization and De-Es...
+
+──────────────────────────────────────────────────────────────────────
+Stay 30855786 | label_septic_shock | true=1  ✅ TRUE POSITIVE (36 qualifying)
+  Probs: source=0.724  RunB=0.805  XGB=0.039
+  Physio Jaccard: RunB=1.000  XGB=0.250  (Δ RunB−XGB=+0.750)
+  Treat  Jaccard: RunB=0.667  XGB=0.667
+  Merged Jaccard: RunB=0.667  XGB=0.250
+
+  Source physio query:  septic shock ICU diastolic blood pressure lactate baseline lactate gcs verbal urine output ml kg hr
+  Run B  physio query:  septic shock ICU diastolic blood pressure systolic blood pressure urine output ml kg hr heart rate lactate baseline
+  XGB    query:         septic shock ICU resp rate systolic blood pressure base excess crystalloid age insulin infusion n distinct meds
+
+  Source physio hits:
+    [1] yr=2019 sim=0.606 | Cardiovascular determinants of resuscitation from sepsis and sept...
+    [2] yr=2015 sim=0.592 | Evaluation of Perfusion Index as a Predictor of Vasopressor Requi...
+    [3] yr=2017 sim=0.591 | Surviving Sepsis Campaign: International Guidelines for Managemen...
+    [4] yr=2019 sim=0.587 | Evaluation and Predictors of Fluid Resuscitation in Patients With...
+    [5] yr=2011 sim=0.582 | Vasopressor administration and sepsis: a survey of Canadian inten...
+  Source treat  hits:
+    [1] yr=2019 sim=0.563 | Evaluation and Predictors of Fluid Resuscitation in Patients With...
+    [2] yr=2018 sim=0.531 | Surviving Sepsis Campaign: Research Priorities for Sepsis and Sep...
+    [3] yr=2019 sim=0.526 | Corticosteroids for treating sepsis in children and adults....
+    [4] yr=2017 sim=0.526 | Surviving Sepsis Campaign: International Guidelines for Managemen...
+    [5] yr=2017 sim=0.525 | Septic shock resuscitation in the first hour....
+
+  Run B  physio hits:
+    [1] yr=2019 sim=0.596 | Cardiovascular determinants of resuscitation from sepsis and sept...
+    [2] yr=2019 sim=0.580 | Evaluation and Predictors of Fluid Resuscitation in Patients With...
+    [3] yr=2017 sim=0.575 | Surviving Sepsis Campaign: International Guidelines for Managemen...
+    [4] yr=2015 sim=0.575 | Evaluation of Perfusion Index as a Predictor of Vasopressor Requi...
+    [5] yr=2011 sim=0.570 | Vasopressor administration and sepsis: a survey of Canadian inten...
+  Run B  treat  hits:
+    [1] yr=2019 sim=0.606 | Evaluation and Predictors of Fluid Resuscitation in Patients With...
+    [2] yr=2018 sim=0.574 | Surviving Sepsis Campaign: Research Priorities for Sepsis and Sep...
+    [3] yr=2017 sim=0.569 | Surviving Sepsis Campaign: International Guidelines for Managemen...
+    [4] yr=2019 sim=0.562 | Risk Factors at Index Hospitalization Associated With Longer-term...
+    [5] yr=2017 sim=0.561 | Septic shock resuscitation in the first hour....
+
+  XGB    merged hits:
+    [1] yr=2017 sim=0.613 | Surviving Sepsis Campaign: International Guidelines for Managemen...
+    [2] yr=2015 sim=0.610 | Optimizing mean arterial pressure in septic shock: a critical rea...
+    [3] yr=2019 sim=0.609 | Evaluation and Predictors of Fluid Resuscitation in Patients With...
+    [4] yr=2018 sim=0.608 | Surviving Sepsis Campaign: Research Priorities for Sepsis and Sep...
+    [5] yr=2019 sim=0.598 | Positive Fluid Balance is Associated with Poor Clinical Outcomes ...
+
+✅ Saved pubmed_rag_stability.json  (300 cases)
+✅ Saved pubmed_rag_explanations.json
+✅ Saved pubmed_rag_summary.json
+
+======================================================================
+RAG GROUND TRUTH EVALUATION — Part A: Automatic metrics
+======================================================================
+
+  Relevance: explicit canonical MeSH descriptor per label
+    label_vasopressor: ['vasoconstrictor agents']
+    label_intubation: ['intubation, intratracheal']
+    label_septic_shock: ['shock, septic']
+
+  Overall (all 300 cases):
+
+  Model          MeSH P@5   MeSH nDCG@5
+  ─────────────────────────────────────
+  Source            0.635         0.860
+  Run B             0.635         0.838
+  XGBoost           0.632         0.913
+
+  Per-label MeSH Precision@5:
+
+  Label                    Source    Run B   XGBoost
+  ────────────────────────────────────────────────────
+  label_vasopressor         0.750    0.760     0.710
+  label_intubation          0.252    0.248     0.208
+  label_septic_shock        0.902    0.896     0.978
+
+✅ Auto metrics written to pubmed_rag_summary.json
+✅ Relevance sets saved → pubmed_rag_relevance_sets.json
+
+======================================================================
+RAG GROUND TRUTH EVALUATION — Part B: Clinician rating scaffold
+======================================================================
+
+✅ Rater input exported → /kaggle/working/pubmed_rag_rater_input.csv
+   45 rows  (3 labels × 3 models × top-5 docs)
+
+   INSTRUCTIONS FOR RATER:
+   1. Open pubmed_rag_rater_input.csv
+   2. For each row, read 'title' and 'abstract_150'
+   3. Set 'relevant_0_1' = 1 if the document is clinically
+      relevant to the decision implied by 'physio_query',
+      0 if not. Blank = treated as 0.
+   4. Save as pubmed_rag_rater_output.csv in the same directory
+   5. Re-run this script to get Precision@5 + nDCG@5
+
+  ℹ  No rater output found yet.
+     Fill in pubmed_rag_rater_input.csv, save as
+     pubmed_rag_rater_output.csv, then re-run.
+
+======================================================================
+FINAL SUMMARY
+======================================================================
+Corpus: 522 abstracts | 2009/01/01 – 2019/12/31
+Cases:  300 (post-drift, 100/label)
+
+Query strategy: automatic from IG/SHAP feature names
+  No vocabulary tables | No MeSH curation | No relevance labels
+  Physio sub-query: top-5 SEQ_FEATURES by |IG|
+  Treat  sub-query: top-4 TREATMENT_FEATURES by |SHAP/IG|
+
+RETRIEVAL STABILITY (Jaccard vs source model):
+  Stream                  Run B   XGBoost   Δ (B−XGB)
+  ──────────────────────────────────────────────────
+  Physiology              0.573      0.330      +0.243
+  Treatment               0.540      0.448      +0.092
+  Merged                  0.438      0.323      +0.116
+
+MECHANISTIC LINK (attribution delta → retrieval divergence):
+  Run B   Spearman r=-0.197  p=0.0006
+  XGBoost Spearman r=-0.169  p=0.0033
+
+ATTRIBUTION MASS SHIFT (physiology stream, |adapted − source|):
+  Run B:    0.0380
+  XGBoost:  0.0320
+  Ratio:    0.8×  (>1 = XGBoost physio more unstable)
+  Note: raw delta ratio. Normalized ratio (÷ source p95) reported
+  in fig_biological_amnesia for cross-section consistency.
+
+✅ script13 complete

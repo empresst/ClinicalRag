@@ -1,0 +1,273 @@
+Loading eval split...
+Loading parquet data...
+  Post-drift held-out: 5749 stays
+Flattening features...
+  X_post shape: (5749, 282)  (282 features)
+  Physiological features: 270
+  Treatment features:     12
+
+Loading XGBoost models...
+  Models loaded.
+
+======================================================================
+LABEL: VASOPRESSOR
+======================================================================
+  Computing population SHAP — source model...
+    processed 200/5749 patients
+    processed 1200/5749 patients
+    processed 2200/5749 patients
+    processed 3200/5749 patients
+    processed 4200/5749 patients
+    processed 5200/5749 patients
+  Computing population SHAP — adapted model...
+    processed 200/5749 patients
+    processed 1200/5749 patients
+    processed 2200/5749 patients
+    processed 3200/5749 patients
+    processed 4200/5749 patients
+    processed 5200/5749 patients
+  Bootstrapping ΔΦ CIs (N=1000)...
+
+  Top-10 physio features by |ΔΦ| — vasopressor:
+  Feature                                     Φ_src    Φ_adp       ΔΦ  95% CI
+  --------------------------------------------------------------------------------
+  last_gcs_eye                               0.1497   0.0188  -0.1308  [-0.1328, -0.1289]*
+  mean_sbp_invasive                          0.1346   0.0322  -0.1024  [-0.1054, -0.0995]*
+  mean_creatinine                            0.0389   0.1296  +0.0907  [+0.0889, +0.0925]*
+  min_sbp_noninvasive                        0.2724   0.1854  -0.0871  [-0.0897, -0.0843]*
+  std_spo2_rollstd_4                         0.0197   0.1013  +0.0816  [+0.0795, +0.0837]*
+  std_ph_venous                              0.0882   0.0162  -0.0720  [-0.0729, -0.0711]*
+  std_sbp_noninvasive                        0.0307   0.1000  +0.0693  [+0.0678, +0.0710]*
+  mean_ph_venous                             0.0111   0.0773  +0.0662  [+0.0651, +0.0675]*
+  max_dbp_noninvasive                        0.0111   0.0759  +0.0648  [+0.0631, +0.0666]*
+  mean_base_excess                           0.0221   0.0782  +0.0561  [+0.0552, +0.0571]*
+
+  Top-10 treatment features by |ΔΦ| — vasopressor:
+  Feature                                     Φ_src    Φ_adp       ΔΦ  95% CI
+  --------------------------------------------------------------------------------
+  total_crystalloid_ml                       1.0566   2.1846  +1.1279  [+1.1161, +1.1382]*
+  age                                        0.1663   0.0519  -0.1144  [-0.1181, -0.1101]*
+  total_prbc_ml                              0.0039   0.0456  +0.0417  [+0.0398, +0.0435]*
+  time_to_first_abx_order_hrs                0.0908   0.1215  +0.0307  [+0.0290, +0.0324]*
+  has_insulin_infusion_obs                   0.0072   0.0309  +0.0237  [+0.0227, +0.0247]*
+  gender_M                                   0.0064   0.0298  +0.0234  [+0.0229, +0.0239]*
+  early_antibiotic                           0.0101   0.0162  +0.0062  [+0.0057, +0.0067]*
+  n_distinct_meds                            0.0917   0.0865  -0.0052  [-0.0087, -0.0019]*
+  steroid_ordered                            0.0029   0.0000  -0.0029  [-0.0031, -0.0027]*
+  has_blood_products_obs                     0.0040   0.0061  +0.0022  [+0.0019, +0.0024]*
+
+======================================================================
+LABEL: INTUBATION
+======================================================================
+  Computing population SHAP — source model...
+    processed 200/5749 patients
+    processed 1200/5749 patients
+    processed 2200/5749 patients
+    processed 3200/5749 patients
+    processed 4200/5749 patients
+    processed 5200/5749 patients
+  Computing population SHAP — adapted model...
+    processed 200/5749 patients
+    processed 1200/5749 patients
+    processed 2200/5749 patients
+    processed 3200/5749 patients
+    processed 4200/5749 patients
+    processed 5200/5749 patients
+  Bootstrapping ΔΦ CIs (N=1000)...
+
+  Top-10 physio features by |ΔΦ| — intubation:
+  Feature                                     Φ_src    Φ_adp       ΔΦ  95% CI
+  --------------------------------------------------------------------------------
+  last_gcs_motor                             0.0257   0.2107  +0.1849  [+0.1833, +0.1864]*
+  std_ph_venous                              0.1573   0.0486  -0.1087  [-0.1101, -0.1073]*
+  last_gcs_eye                               0.1912   0.0966  -0.0946  [-0.0971, -0.0919]*
+  min_resp_rate                              0.0216   0.0992  +0.0776  [+0.0763, +0.0788]*
+  std_base_excess                            0.0727   0.1472  +0.0744  [+0.0728, +0.0762]*
+  std_glucose_baseline                       0.0057   0.0785  +0.0728  [+0.0715, +0.0741]*
+  min_gcs_eye                                0.0056   0.0741  +0.0685  [+0.0677, +0.0694]*
+  min_sbp_noninvasive                        0.0300   0.0975  +0.0675  [+0.0659, +0.0690]*
+  min_urine_output_ml_kg_hr                  0.0186   0.0791  +0.0605  [+0.0594, +0.0615]*
+  mean_resp_rate_rollstd_3                   0.1005   0.0448  -0.0557  [-0.0575, -0.0540]*
+
+  Top-10 treatment features by |ΔΦ| — intubation:
+  Feature                                     Φ_src    Φ_adp       ΔΦ  95% CI
+  --------------------------------------------------------------------------------
+  n_distinct_meds                            0.2277   0.0464  -0.1813  [-0.1837, -0.1788]*
+  time_to_first_abx_order_hrs                0.1070   0.0554  -0.0516  [-0.0527, -0.0504]*
+  has_blood_products_obs                     0.0403   0.0009  -0.0393  [-0.0405, -0.0382]*
+  age                                        0.0800   0.0557  -0.0243  [-0.0258, -0.0229]*
+  total_crystalloid_ml                       0.0347   0.0106  -0.0241  [-0.0250, -0.0233]*
+  steroid_ordered                            0.0176   0.0017  -0.0160  [-0.0167, -0.0152]*
+  total_prbc_ml                              0.0132   0.0009  -0.0123  [-0.0130, -0.0116]*
+  gender_M                                   0.0018   0.0118  +0.0101  [+0.0099, +0.0103]*
+  has_insulin_infusion_obs                   0.0071   0.0021  -0.0050  [-0.0052, -0.0048]*
+  has_rrt_obs                                0.0045   0.0000  -0.0045  [-0.0050, -0.0040]*
+
+======================================================================
+LABEL: SEPTIC_SHOCK
+======================================================================
+  Computing population SHAP — source model...
+    processed 200/5749 patients
+    processed 1200/5749 patients
+    processed 2200/5749 patients
+    processed 3200/5749 patients
+    processed 4200/5749 patients
+    processed 5200/5749 patients
+  Computing population SHAP — adapted model...
+    processed 200/5749 patients
+    processed 1200/5749 patients
+    processed 2200/5749 patients
+    processed 3200/5749 patients
+    processed 4200/5749 patients
+    processed 5200/5749 patients
+  Bootstrapping ΔΦ CIs (N=1000)...
+
+  Top-10 physio features by |ΔΦ| — septic_shock:
+  Feature                                     Φ_src    Φ_adp       ΔΦ  95% CI
+  --------------------------------------------------------------------------------
+  std_ph_venous                              0.0851   0.9319  +0.8468  [+0.8353, +0.8585]*
+  last_map_invasive_time_delta               0.4821   0.0000  -0.4821  [-0.4845, -0.4796]*
+  max_lactate                                0.4707   0.0329  -0.4378  [-0.4422, -0.4337]*
+  std_pco2_venous                            0.0408   0.2898  +0.2490  [+0.2445, +0.2540]*
+  last_lactate                               0.2453   0.0142  -0.2311  [-0.2351, -0.2273]*
+  mean_sbp_invasive                          0.0508   0.2615  +0.2107  [+0.2079, +0.2133]*
+  last_base_excess                           0.0412   0.2445  +0.2033  [+0.2009, +0.2059]*
+  mean_map_invasive_time_delta               0.1616   0.0059  -0.1557  [-0.1575, -0.1537]*
+  std_dbp_noninvasive                        0.1187   0.0074  -0.1113  [-0.1125, -0.1100]*
+  last_gcs_verbal                            0.1119   0.0066  -0.1053  [-0.1072, -0.1034]*
+
+  Top-10 treatment features by |ΔΦ| — septic_shock:
+  Feature                                     Φ_src    Φ_adp       ΔΦ  95% CI
+  --------------------------------------------------------------------------------
+  total_crystalloid_ml                       0.6547   1.3233  +0.6687  [+0.6551, +0.6824]*
+  age                                        0.1700   0.0464  -0.1236  [-0.1288, -0.1179]*
+  has_blood_products_obs                     0.0456   0.0000  -0.0456  [-0.0464, -0.0448]*
+  time_to_first_abx_order_hrs                0.0390   0.0000  -0.0390  [-0.0402, -0.0379]*
+  n_distinct_meds                            0.0317   0.0102  -0.0215  [-0.0222, -0.0208]*
+  has_insulin_infusion_obs                   0.0039   0.0174  +0.0135  [+0.0132, +0.0139]*
+  total_prbc_ml                              0.0103   0.0011  -0.0093  [-0.0094, -0.0091]*
+  steroid_ordered                            0.0054   0.0000  -0.0054  [-0.0057, -0.0050]*
+  gender_M                                   0.0068   0.0021  -0.0047  [-0.0049, -0.0045]*
+  early_antibiotic                           0.0035   0.0000  -0.0035  [-0.0036, -0.0033]*
+
+✅ Saved → /kaggle/working/delta_attribution_table.json
+
+==========================================================================================
+Δ-ATTRIBUTION TABLE — XGBoost (Source → Adapted), Population Level
+N = 5749 post-drift held-out patients | Bootstrap N=1000
+ΔΦ = mean|SHAP_adapted| − mean|SHAP_source| across all patients
+* = 95% CI excludes zero (statistically significant shift)
+==========================================================================================
+
+── Vasopressor ──────────────────────────────────────────────────
+
+  PHYSIOLOGICAL STREAM
+  Feature                                     Φ_src    Φ_adp       ΔΦ  95% CI
+  ------------------------------------------------------------------------------
+  last_gcs_eye                               0.1497   0.0188  -0.1308  [-0.1328, -0.1289] *
+  mean_sbp_invasive                          0.1346   0.0322  -0.1024  [-0.1054, -0.0995] *
+  mean_creatinine                            0.0389   0.1296  +0.0907  [+0.0889, +0.0925] *
+  min_sbp_noninvasive                        0.2724   0.1854  -0.0871  [-0.0897, -0.0843] *
+  std_spo2_rollstd_4                         0.0197   0.1013  +0.0816  [+0.0795, +0.0837] *
+  std_ph_venous                              0.0882   0.0162  -0.0720  [-0.0729, -0.0711] *
+  std_sbp_noninvasive                        0.0307   0.1000  +0.0693  [+0.0678, +0.0710] *
+  mean_ph_venous                             0.0111   0.0773  +0.0662  [+0.0651, +0.0675] *
+  max_dbp_noninvasive                        0.0111   0.0759  +0.0648  [+0.0631, +0.0666] *
+  mean_base_excess                           0.0221   0.0782  +0.0561  [+0.0552, +0.0571] *
+
+  Summary: 270 features | sig. increased: 160 | sig. decreased: 93 | mean |ΔΦ|: 0.0121
+
+  TREATMENT STREAM
+  Feature                                     Φ_src    Φ_adp       ΔΦ  95% CI
+  ------------------------------------------------------------------------------
+  total_crystalloid_ml                       1.0566   2.1846  +1.1279  [+1.1161, +1.1382] *
+  age                                        0.1663   0.0519  -0.1144  [-0.1181, -0.1101] *
+  total_prbc_ml                              0.0039   0.0456  +0.0417  [+0.0398, +0.0435] *
+  time_to_first_abx_order_hrs                0.0908   0.1215  +0.0307  [+0.0290, +0.0324] *
+  has_insulin_infusion_obs                   0.0072   0.0309  +0.0237  [+0.0227, +0.0247] *
+  gender_M                                   0.0064   0.0298  +0.0234  [+0.0229, +0.0239] *
+  early_antibiotic                           0.0101   0.0162  +0.0062  [+0.0057, +0.0067] *
+  n_distinct_meds                            0.0917   0.0865  -0.0052  [-0.0087, -0.0019] *
+  steroid_ordered                            0.0029   0.0000  -0.0029  [-0.0031, -0.0027] *
+  has_blood_products_obs                     0.0040   0.0061  +0.0022  [+0.0019, +0.0024] *
+
+  Summary: 12 features | sig. increased: 7 | sig. decreased: 4 | mean |ΔΦ|: 0.1149
+
+── Intubation ──────────────────────────────────────────────────
+
+  PHYSIOLOGICAL STREAM
+  Feature                                     Φ_src    Φ_adp       ΔΦ  95% CI
+  ------------------------------------------------------------------------------
+  last_gcs_motor                             0.0257   0.2107  +0.1849  [+0.1833, +0.1864] *
+  std_ph_venous                              0.1573   0.0486  -0.1087  [-0.1101, -0.1073] *
+  last_gcs_eye                               0.1912   0.0966  -0.0946  [-0.0971, -0.0919] *
+  min_resp_rate                              0.0216   0.0992  +0.0776  [+0.0763, +0.0788] *
+  std_base_excess                            0.0727   0.1472  +0.0744  [+0.0728, +0.0762] *
+  std_glucose_baseline                       0.0057   0.0785  +0.0728  [+0.0715, +0.0741] *
+  min_gcs_eye                                0.0056   0.0741  +0.0685  [+0.0677, +0.0694] *
+  min_sbp_noninvasive                        0.0300   0.0975  +0.0675  [+0.0659, +0.0690] *
+  min_urine_output_ml_kg_hr                  0.0186   0.0791  +0.0605  [+0.0594, +0.0615] *
+  mean_resp_rate_rollstd_3                   0.1005   0.0448  -0.0557  [-0.0575, -0.0540] *
+
+  Summary: 270 features | sig. increased: 110 | sig. decreased: 140 | mean |ΔΦ|: 0.0106
+
+  TREATMENT STREAM
+  Feature                                     Φ_src    Φ_adp       ΔΦ  95% CI
+  ------------------------------------------------------------------------------
+  n_distinct_meds                            0.2277   0.0464  -0.1813  [-0.1837, -0.1788] *
+  time_to_first_abx_order_hrs                0.1070   0.0554  -0.0516  [-0.0527, -0.0504] *
+  has_blood_products_obs                     0.0403   0.0009  -0.0393  [-0.0405, -0.0382] *
+  age                                        0.0800   0.0557  -0.0243  [-0.0258, -0.0229] *
+  total_crystalloid_ml                       0.0347   0.0106  -0.0241  [-0.0250, -0.0233] *
+  steroid_ordered                            0.0176   0.0017  -0.0160  [-0.0167, -0.0152] *
+  total_prbc_ml                              0.0132   0.0009  -0.0123  [-0.0130, -0.0116] *
+  gender_M                                   0.0018   0.0118  +0.0101  [+0.0099, +0.0103] *
+  has_insulin_infusion_obs                   0.0071   0.0021  -0.0050  [-0.0052, -0.0048] *
+  has_rrt_obs                                0.0045   0.0000  -0.0045  [-0.0050, -0.0040] *
+
+  Summary: 12 features | sig. increased: 3 | sig. decreased: 9 | mean |ΔΦ|: 0.0311
+
+── Septic Shock ──────────────────────────────────────────────────
+
+  PHYSIOLOGICAL STREAM
+  Feature                                     Φ_src    Φ_adp       ΔΦ  95% CI
+  ------------------------------------------------------------------------------
+  std_ph_venous                              0.0851   0.9319  +0.8468  [+0.8353, +0.8585] *
+  last_map_invasive_time_delta               0.4821   0.0000  -0.4821  [-0.4845, -0.4796] *
+  max_lactate                                0.4707   0.0329  -0.4378  [-0.4422, -0.4337] *
+  std_pco2_venous                            0.0408   0.2898  +0.2490  [+0.2445, +0.2540] *
+  last_lactate                               0.2453   0.0142  -0.2311  [-0.2351, -0.2273] *
+  mean_sbp_invasive                          0.0508   0.2615  +0.2107  [+0.2079, +0.2133] *
+  last_base_excess                           0.0412   0.2445  +0.2033  [+0.2009, +0.2059] *
+  mean_map_invasive_time_delta               0.1616   0.0059  -0.1557  [-0.1575, -0.1537] *
+  std_dbp_noninvasive                        0.1187   0.0074  -0.1113  [-0.1125, -0.1100] *
+  last_gcs_verbal                            0.1119   0.0066  -0.1053  [-0.1072, -0.1034] *
+
+  Summary: 270 features | sig. increased: 32 | sig. decreased: 226 | mean |ΔΦ|: 0.0280
+
+  TREATMENT STREAM
+  Feature                                     Φ_src    Φ_adp       ΔΦ  95% CI
+  ------------------------------------------------------------------------------
+  total_crystalloid_ml                       0.6547   1.3233  +0.6687  [+0.6551, +0.6824] *
+  age                                        0.1700   0.0464  -0.1236  [-0.1288, -0.1179] *
+  has_blood_products_obs                     0.0456   0.0000  -0.0456  [-0.0464, -0.0448] *
+  time_to_first_abx_order_hrs                0.0390   0.0000  -0.0390  [-0.0402, -0.0379] *
+  n_distinct_meds                            0.0317   0.0102  -0.0215  [-0.0222, -0.0208] *
+  has_insulin_infusion_obs                   0.0039   0.0174  +0.0135  [+0.0132, +0.0139] *
+  total_prbc_ml                              0.0103   0.0011  -0.0093  [-0.0094, -0.0091] *
+  steroid_ordered                            0.0054   0.0000  -0.0054  [-0.0057, -0.0050] *
+  gender_M                                   0.0068   0.0021  -0.0047  [-0.0049, -0.0045] *
+  early_antibiotic                           0.0035   0.0000  -0.0035  [-0.0036, -0.0033] *
+
+  Summary: 12 features | sig. increased: 2 | sig. decreased: 10 | mean |ΔΦ|: 0.0780
+
+==========================================================================================
+
+Run B PHYSIOLOGICAL ΔΦ (by architectural construction):
+  LSTM weights frozen → mean_rel_Δ = 0.0000 for all physio features
+  Any non-zero IG shift in Run B originates from fusion head, not encoder
+==========================================================================================
+
+✅ Saved → /kaggle/working/delta_attribution_summary.txt
+
+✅ script_mc4_delta_attribution.py complete

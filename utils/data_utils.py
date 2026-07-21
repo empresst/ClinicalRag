@@ -1,4 +1,4 @@
-#%%writefile utils/data_utils.py
+%%writefile utils/data_utils.py
 import polars as pl
 import numpy as np
 import torch
@@ -18,7 +18,7 @@ LABEL_COLS = ["label_vasopressor", "label_intubation", "label_septic_shock"]
 
 def load_enriched_split(base_path: Path, split_name: str, seq_features: list, treat_features: list) -> pl.DataFrame:
     """Loads a parquet split and ensures all required columns and encodings exist."""
-    df = pl.read_parquet(base_path / f"{split_name}_final_enriched.parquet")
+    df = pl.read_parquet(base_path / f"{split_name}_final_enriched4.parquet")
     
     if "gender" in df.columns:
         df = df.with_columns((pl.col("gender") == "M").cast(pl.Float32).alias("gender_M"))

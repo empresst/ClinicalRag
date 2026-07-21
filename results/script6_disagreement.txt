@@ -1,0 +1,419 @@
+Device: cpu
+
+Loading two-stream checkpoint (Runs A, B)...
+  Reconstructed: 86 seq features, 12 treat features
+Loading full adapt checkpoint (Runs C, D)...
+✅ All models (A, B, C, D) loaded successfully
+
+Loading data...
+Total post-drift stays: 9602
+✅ Loaded eval_split.json from /kaggle/working/eval_split.json (drift_tag=2020 - 2022)
+   eval_post_stays: 5749 stays
+✅ Final post-drift held-out set: 5749 stays
+
+Getting predictions on post-drift held-out set...
+  Stay-id alignment confirmed for all four models: 5749 stays
+✅ XGBoost realigned to PyTorch ordering (5749 stays)
+
+==============================================================================
+DISAGREEMENT MATRICES  (catch>=0.5, miss<0.1)
+==============================================================================
+
+── Run B  vs  XGBoost-adapted  ────────────────────────────────────────
+
+  VASOPRESSOR      (n_pos=554)
+    Run B catches, XGBoost-adapted misses :   19  (  3.4%)
+    XGBoost-adapted catches, Run B misses :    0  (  0.0%)
+    Both catch                        :  325  ( 58.7%)
+    Both miss                         :   83  ( 15.0%)
+    Asymmetry ratio (Run B/XGBoost-adapted)  : ∞
+    False-alarm (n_neg=5195):  Run B alarms/XGBoost-adapted quiet=434  |  XGBoost-adapted alarms/Run B quiet=0
+
+  INTUBATION       (n_pos=1657)
+    Run B catches, XGBoost-adapted misses :    4  (  0.2%)
+    XGBoost-adapted catches, Run B misses :    0  (  0.0%)
+    Both catch                        : 1397  ( 84.3%)
+    Both miss                         :  162  (  9.8%)
+    Asymmetry ratio (Run B/XGBoost-adapted)  : ∞
+    False-alarm (n_neg=4092):  Run B alarms/XGBoost-adapted quiet=24  |  XGBoost-adapted alarms/Run B quiet=0
+
+  SEPTIC_SHOCK     (n_pos=76)
+    Run B catches, XGBoost-adapted misses :   26  ( 34.2%)
+    XGBoost-adapted catches, Run B misses :    0  (  0.0%)
+    Both catch                        :    5  (  6.6%)
+    Both miss                         :   23  ( 30.3%)
+    Asymmetry ratio (Run B/XGBoost-adapted)  : ∞
+    False-alarm (n_neg=5673):  Run B alarms/XGBoost-adapted quiet=81  |  XGBoost-adapted alarms/Run B quiet=0
+
+── Run B  vs  Run C  ────────────────────────────────────────
+
+  VASOPRESSOR      (n_pos=554)
+    Run B catches, Run C misses :    0  (  0.0%)
+    Run C catches, Run B misses :    0  (  0.0%)
+    Both catch                        :  419  ( 75.6%)
+    Both miss                         :   83  ( 15.0%)
+    Asymmetry ratio (Run B/Run C)  : ∞
+    False-alarm (n_neg=5195):  Run B alarms/Run C quiet=0  |  Run C alarms/Run B quiet=0
+
+  INTUBATION       (n_pos=1657)
+    Run B catches, Run C misses :    0  (  0.0%)
+    Run C catches, Run B misses :    0  (  0.0%)
+    Both catch                        : 1428  ( 86.2%)
+    Both miss                         :  169  ( 10.2%)
+    Asymmetry ratio (Run B/Run C)  : ∞
+    False-alarm (n_neg=4092):  Run B alarms/Run C quiet=0  |  Run C alarms/Run B quiet=0
+
+  SEPTIC_SHOCK     (n_pos=76)
+    Run B catches, Run C misses :    1  (  1.3%)
+    Run C catches, Run B misses :    0  (  0.0%)
+    Both catch                        :   44  ( 57.9%)
+    Both miss                         :   20  ( 26.3%)
+    Asymmetry ratio (Run B/Run C)  : ∞
+    False-alarm (n_neg=5673):  Run B alarms/Run C quiet=3  |  Run C alarms/Run B quiet=2
+
+── Run C  vs  XGBoost-adapted  ────────────────────────────────────────
+
+  VASOPRESSOR      (n_pos=554)
+    Run C catches, XGBoost-adapted misses :   17  (  3.1%)
+    XGBoost-adapted catches, Run C misses :    0  (  0.0%)
+    Both catch                        :  340  ( 61.4%)
+    Both miss                         :   90  ( 16.2%)
+    Asymmetry ratio (Run C/XGBoost-adapted)  : ∞
+    False-alarm (n_neg=5195):  Run C alarms/XGBoost-adapted quiet=694  |  XGBoost-adapted alarms/Run C quiet=1
+
+  INTUBATION       (n_pos=1657)
+    Run C catches, XGBoost-adapted misses :    7  (  0.4%)
+    XGBoost-adapted catches, Run C misses :    0  (  0.0%)
+    Both catch                        : 1393  ( 84.1%)
+    Both miss                         :  170  ( 10.3%)
+    Asymmetry ratio (Run C/XGBoost-adapted)  : ∞
+    False-alarm (n_neg=4092):  Run C alarms/XGBoost-adapted quiet=20  |  XGBoost-adapted alarms/Run C quiet=0
+
+  SEPTIC_SHOCK     (n_pos=76)
+    Run C catches, XGBoost-adapted misses :   20  ( 26.3%)
+    XGBoost-adapted catches, Run C misses :    0  (  0.0%)
+    Both catch                        :    5  (  6.6%)
+    Both miss                         :   29  ( 38.2%)
+    Asymmetry ratio (Run C/XGBoost-adapted)  : ∞
+    False-alarm (n_neg=5673):  Run C alarms/XGBoost-adapted quiet=65  |  XGBoost-adapted alarms/Run C quiet=0
+
+── Run B  vs  Run A  ────────────────────────────────────────
+
+  VASOPRESSOR      (n_pos=554)
+    Run B catches, Run A misses :    0  (  0.0%)
+    Run A catches, Run B misses :    0  (  0.0%)
+    Both catch                        :  413  ( 74.5%)
+    Both miss                         :   75  ( 13.5%)
+    Asymmetry ratio (Run B/Run A)  : ∞
+    False-alarm (n_neg=5195):  Run B alarms/Run A quiet=0  |  Run A alarms/Run B quiet=0
+
+  INTUBATION       (n_pos=1657)
+    Run B catches, Run A misses :    0  (  0.0%)
+    Run A catches, Run B misses :    0  (  0.0%)
+    Both catch                        : 1462  ( 88.2%)
+    Both miss                         :  152  (  9.2%)
+    Asymmetry ratio (Run B/Run A)  : ∞
+    False-alarm (n_neg=4092):  Run B alarms/Run A quiet=0  |  Run A alarms/Run B quiet=0
+
+  SEPTIC_SHOCK     (n_pos=76)
+    Run B catches, Run A misses :    0  (  0.0%)
+    Run A catches, Run B misses :    3  (  3.9%)
+    Both catch                        :   52  ( 68.4%)
+    Both miss                         :   15  ( 19.7%)
+    Asymmetry ratio (Run B/Run A)  : 0.00x
+    False-alarm (n_neg=5673):  Run B alarms/Run A quiet=0  |  Run A alarms/Run B quiet=309
+
+── Run B  vs  Run D  ────────────────────────────────────────
+
+  VASOPRESSOR      (n_pos=554)
+    Run B catches, Run D misses :    0  (  0.0%)
+    Run D catches, Run B misses :    0  (  0.0%)
+    Both catch                        :  394  ( 71.1%)
+    Both miss                         :   78  ( 14.1%)
+    Asymmetry ratio (Run B/Run D)  : ∞
+    False-alarm (n_neg=5195):  Run B alarms/Run D quiet=3  |  Run D alarms/Run B quiet=0
+
+  INTUBATION       (n_pos=1657)
+    Run B catches, Run D misses :    0  (  0.0%)
+    Run D catches, Run B misses :    0  (  0.0%)
+    Both catch                        : 1406  ( 84.9%)
+    Both miss                         :  170  ( 10.3%)
+    Asymmetry ratio (Run B/Run D)  : ∞
+    False-alarm (n_neg=4092):  Run B alarms/Run D quiet=0  |  Run D alarms/Run B quiet=0
+
+  SEPTIC_SHOCK     (n_pos=76)
+    Run B catches, Run D misses :    0  (  0.0%)
+    Run D catches, Run B misses :    3  (  3.9%)
+    Both catch                        :   42  ( 55.3%)
+    Both miss                         :   16  ( 21.1%)
+    Asymmetry ratio (Run B/Run D)  : 0.00x
+    False-alarm (n_neg=5673):  Run B alarms/Run D quiet=2  |  Run D alarms/Run B quiet=142
+
+── Run C  vs  Run D  ────────────────────────────────────────
+
+  VASOPRESSOR      (n_pos=554)
+    Run C catches, Run D misses :    0  (  0.0%)
+    Run D catches, Run C misses :    0  (  0.0%)
+    Both catch                        :  404  ( 72.9%)
+    Both miss                         :   80  ( 14.4%)
+    Asymmetry ratio (Run C/Run D)  : ∞
+    False-alarm (n_neg=5195):  Run C alarms/Run D quiet=1  |  Run D alarms/Run C quiet=2
+
+  INTUBATION       (n_pos=1657)
+    Run C catches, Run D misses :    0  (  0.0%)
+    Run D catches, Run C misses :    0  (  0.0%)
+    Both catch                        : 1405  ( 84.8%)
+    Both miss                         :  181  ( 10.9%)
+    Asymmetry ratio (Run C/Run D)  : ∞
+    False-alarm (n_neg=4092):  Run C alarms/Run D quiet=0  |  Run D alarms/Run C quiet=0
+
+  SEPTIC_SHOCK     (n_pos=76)
+    Run C catches, Run D misses :    0  (  0.0%)
+    Run D catches, Run C misses :    1  (  1.3%)
+    Both catch                        :   39  ( 51.3%)
+    Both miss                         :   19  ( 25.0%)
+    Asymmetry ratio (Run C/Run D)  : 0.00x
+    False-alarm (n_neg=5673):  Run C alarms/Run D quiet=0  |  Run D alarms/Run C quiet=78
+
+── Run D  vs  XGBoost-adapted  ────────────────────────────────────────
+
+  VASOPRESSOR      (n_pos=554)
+    Run D catches, XGBoost-adapted misses :   14  (  2.5%)
+    XGBoost-adapted catches, Run D misses :    0  (  0.0%)
+    Both catch                        :  335  ( 60.5%)
+    Both miss                         :  105  ( 19.0%)
+    Asymmetry ratio (Run D/XGBoost-adapted)  : ∞
+    False-alarm (n_neg=5195):  Run D alarms/XGBoost-adapted quiet=1095  |  XGBoost-adapted alarms/Run D quiet=0
+
+  INTUBATION       (n_pos=1657)
+    Run D catches, XGBoost-adapted misses :    6  (  0.4%)
+    XGBoost-adapted catches, Run D misses :    0  (  0.0%)
+    Both catch                        : 1370  ( 82.7%)
+    Both miss                         :  170  ( 10.3%)
+    Asymmetry ratio (Run D/XGBoost-adapted)  : ∞
+    False-alarm (n_neg=4092):  Run D alarms/XGBoost-adapted quiet=16  |  XGBoost-adapted alarms/Run D quiet=0
+
+  SEPTIC_SHOCK     (n_pos=76)
+    Run D catches, XGBoost-adapted misses :   25  ( 32.9%)
+    XGBoost-adapted catches, Run D misses :    0  (  0.0%)
+    Both catch                        :    5  (  6.6%)
+    Both miss                         :   27  ( 35.5%)
+    Asymmetry ratio (Run D/XGBoost-adapted)  : ∞
+    False-alarm (n_neg=5673):  Run D alarms/XGBoost-adapted quiet=237  |  XGBoost-adapted alarms/Run D quiet=0
+
+── Run D  vs  Run A  ────────────────────────────────────────
+
+  VASOPRESSOR      (n_pos=554)
+    Run D catches, Run A misses :    0  (  0.0%)
+    Run A catches, Run D misses :    0  (  0.0%)
+    Both catch                        :  411  ( 74.2%)
+    Both miss                         :   85  ( 15.3%)
+    Asymmetry ratio (Run D/Run A)  : ∞
+    False-alarm (n_neg=5195):  Run D alarms/Run A quiet=0  |  Run A alarms/Run D quiet=0
+
+  INTUBATION       (n_pos=1657)
+    Run D catches, Run A misses :    0  (  0.0%)
+    Run A catches, Run D misses :    0  (  0.0%)
+    Both catch                        : 1420  ( 85.7%)
+    Both miss                         :  145  (  8.8%)
+    Asymmetry ratio (Run D/Run A)  : ∞
+    False-alarm (n_neg=4092):  Run D alarms/Run A quiet=0  |  Run A alarms/Run D quiet=1
+
+  SEPTIC_SHOCK     (n_pos=76)
+    Run D catches, Run A misses :    0  (  0.0%)
+    Run A catches, Run D misses :    0  (  0.0%)
+    Both catch                        :   46  ( 60.5%)
+    Both miss                         :   13  ( 17.1%)
+    Asymmetry ratio (Run D/Run A)  : ∞
+    False-alarm (n_neg=5673):  Run D alarms/Run A quiet=2  |  Run A alarms/Run D quiet=37
+
+==============================================================================
+THRESHOLD SENSITIVITY
+==============================================================================
+
+  ── Run B vs XGBoost-adapted
+    catch>=0.50  miss<0.10
+      vasopressor       Run B-catch/XGBoost-adapted-miss= 19   XGBoost-adapted-catch/Run B-miss=  0   asymmetry=∞
+      intubation        Run B-catch/XGBoost-adapted-miss=  4   XGBoost-adapted-catch/Run B-miss=  0   asymmetry=∞
+      septic_shock      Run B-catch/XGBoost-adapted-miss= 26   XGBoost-adapted-catch/Run B-miss=  0   asymmetry=∞
+    catch>=0.50  miss<0.20
+      vasopressor       Run B-catch/XGBoost-adapted-miss= 35   XGBoost-adapted-catch/Run B-miss=  0   asymmetry=∞
+      intubation        Run B-catch/XGBoost-adapted-miss= 16   XGBoost-adapted-catch/Run B-miss=  0   asymmetry=∞
+      septic_shock      Run B-catch/XGBoost-adapted-miss= 35   XGBoost-adapted-catch/Run B-miss=  0   asymmetry=∞
+    catch>=0.40  miss<0.10
+      vasopressor       Run B-catch/XGBoost-adapted-miss= 27   XGBoost-adapted-catch/Run B-miss=  0   asymmetry=∞
+      intubation        Run B-catch/XGBoost-adapted-miss= 12   XGBoost-adapted-catch/Run B-miss=  0   asymmetry=∞
+      septic_shock      Run B-catch/XGBoost-adapted-miss= 31   XGBoost-adapted-catch/Run B-miss=  0   asymmetry=∞
+    catch>=0.30  miss<0.10
+      vasopressor       Run B-catch/XGBoost-adapted-miss= 33   XGBoost-adapted-catch/Run B-miss=  0   asymmetry=∞
+      intubation        Run B-catch/XGBoost-adapted-miss= 33   XGBoost-adapted-catch/Run B-miss=  0   asymmetry=∞
+      septic_shock      Run B-catch/XGBoost-adapted-miss= 32   XGBoost-adapted-catch/Run B-miss=  0   asymmetry=∞
+    catch>=0.50  miss<0.05
+      vasopressor       Run B-catch/XGBoost-adapted-miss= 12   XGBoost-adapted-catch/Run B-miss=  0   asymmetry=∞
+      intubation        Run B-catch/XGBoost-adapted-miss=  1   XGBoost-adapted-catch/Run B-miss=  0   asymmetry=∞
+      septic_shock      Run B-catch/XGBoost-adapted-miss= 19   XGBoost-adapted-catch/Run B-miss=  0   asymmetry=∞
+
+  ── Run D vs XGBoost-adapted
+    catch>=0.50  miss<0.10
+      vasopressor       Run D-catch/XGBoost-adapted-miss= 14   XGBoost-adapted-catch/Run D-miss=  0   asymmetry=∞
+      intubation        Run D-catch/XGBoost-adapted-miss=  6   XGBoost-adapted-catch/Run D-miss=  0   asymmetry=∞
+      septic_shock      Run D-catch/XGBoost-adapted-miss= 25   XGBoost-adapted-catch/Run D-miss=  0   asymmetry=∞
+    catch>=0.50  miss<0.20
+      vasopressor       Run D-catch/XGBoost-adapted-miss= 27   XGBoost-adapted-catch/Run D-miss=  0   asymmetry=∞
+      intubation        Run D-catch/XGBoost-adapted-miss= 16   XGBoost-adapted-catch/Run D-miss=  0   asymmetry=∞
+      septic_shock      Run D-catch/XGBoost-adapted-miss= 34   XGBoost-adapted-catch/Run D-miss=  0   asymmetry=∞
+    catch>=0.40  miss<0.10
+      vasopressor       Run D-catch/XGBoost-adapted-miss= 26   XGBoost-adapted-catch/Run D-miss=  0   asymmetry=∞
+      intubation        Run D-catch/XGBoost-adapted-miss= 10   XGBoost-adapted-catch/Run D-miss=  0   asymmetry=∞
+      septic_shock      Run D-catch/XGBoost-adapted-miss= 32   XGBoost-adapted-catch/Run D-miss=  0   asymmetry=∞
+    catch>=0.30  miss<0.10
+      vasopressor       Run D-catch/XGBoost-adapted-miss= 31   XGBoost-adapted-catch/Run D-miss=  0   asymmetry=∞
+      intubation        Run D-catch/XGBoost-adapted-miss= 29   XGBoost-adapted-catch/Run D-miss=  0   asymmetry=∞
+      septic_shock      Run D-catch/XGBoost-adapted-miss= 35   XGBoost-adapted-catch/Run D-miss=  0   asymmetry=∞
+    catch>=0.50  miss<0.05
+      vasopressor       Run D-catch/XGBoost-adapted-miss= 10   XGBoost-adapted-catch/Run D-miss=  0   asymmetry=∞
+      intubation        Run D-catch/XGBoost-adapted-miss=  1   XGBoost-adapted-catch/Run D-miss=  0   asymmetry=∞
+      septic_shock      Run D-catch/XGBoost-adapted-miss= 19   XGBoost-adapted-catch/Run D-miss=  0   asymmetry=∞
+
+  ── Run B vs Run D
+    catch>=0.50  miss<0.10
+      vasopressor       Run B-catch/Run D-miss=  0   Run D-catch/Run B-miss=  0   asymmetry=∞
+      intubation        Run B-catch/Run D-miss=  0   Run D-catch/Run B-miss=  0   asymmetry=∞
+      septic_shock      Run B-catch/Run D-miss=  0   Run D-catch/Run B-miss=  3   asymmetry=0.00x
+    catch>=0.50  miss<0.20
+      vasopressor       Run B-catch/Run D-miss=  2   Run D-catch/Run B-miss=  0   asymmetry=∞
+      intubation        Run B-catch/Run D-miss=  0   Run D-catch/Run B-miss=  0   asymmetry=∞
+      septic_shock      Run B-catch/Run D-miss=  1   Run D-catch/Run B-miss=  3   asymmetry=0.33x
+    catch>=0.40  miss<0.10
+      vasopressor       Run B-catch/Run D-miss=  0   Run D-catch/Run B-miss=  0   asymmetry=∞
+      intubation        Run B-catch/Run D-miss=  0   Run D-catch/Run B-miss=  0   asymmetry=∞
+      septic_shock      Run B-catch/Run D-miss=  1   Run D-catch/Run B-miss=  3   asymmetry=0.33x
+    catch>=0.30  miss<0.10
+      vasopressor       Run B-catch/Run D-miss=  0   Run D-catch/Run B-miss=  0   asymmetry=∞
+      intubation        Run B-catch/Run D-miss=  1   Run D-catch/Run B-miss=  0   asymmetry=∞
+      septic_shock      Run B-catch/Run D-miss=  1   Run D-catch/Run B-miss=  4   asymmetry=0.25x
+    catch>=0.50  miss<0.05
+      vasopressor       Run B-catch/Run D-miss=  0   Run D-catch/Run B-miss=  0   asymmetry=∞
+      intubation        Run B-catch/Run D-miss=  0   Run D-catch/Run B-miss=  0   asymmetry=∞
+      septic_shock      Run B-catch/Run D-miss=  0   Run D-catch/Run B-miss=  0   asymmetry=∞
+
+==============================================================================
+WORKED-EXAMPLE PATIENTS — Run A / B / C / D / XGBoost probabilities
+==============================================================================
+  Selected Patient A — vasopressor: stay_id=35773744, Run B=0.9036, XGBoost-adapted=0.1553, true=1
+  Selected Patient C — intubation: stay_id=30404909, Run B=0.8084, XGBoost-adapted=0.0462, true=1
+  Selected Patient B — septic shock: stay_id=31656477, Run B=0.8561, XGBoost-adapted=0.0403, true=1
+
+  Patient A — vasopressor (stay_id=35773744, label=label_vasopressor, true=1)
+    Run A  (frozen)              : 0.7922
+    Run B  (two-stream selective): 0.9036
+    Run C  (two-stream full)     : 0.8827
+    Run D  (single-stream head)  : 0.6952
+    XGBoost (source)             : 0.8783
+    XGBoost (adapted)            : 0.1553
+
+  Patient C — intubation (stay_id=30404909, label=label_intubation, true=1)
+    Run A  (frozen)              : 0.7589
+    Run B  (two-stream selective): 0.8084
+    Run C  (two-stream full)     : 0.8249
+    Run D  (single-stream head)  : 0.7689
+    XGBoost (source)             : 0.0914
+    XGBoost (adapted)            : 0.0462
+
+  Patient B — septic shock (stay_id=31656477, label=label_septic_shock, true=1)
+    Run A  (frozen)              : 0.7974
+    Run B  (two-stream selective): 0.8561
+    Run C  (two-stream full)     : 0.8538
+    Run D  (single-stream head)  : 0.6937
+    XGBoost (source)             : 0.5121
+    XGBoost (adapted)            : 0.0403
+
+Generating disagreement-matrix figures...
+Saved → /kaggle/working/disagreement_matrices_abc.png
+Saved → /kaggle/working/disagreement_matrices_runD.png
+Saved → /kaggle/working/post_drift_predictions_with_runD.npz
+Saved → /kaggle/working/disagreement_matrix_results_with_runD.json
+
+==============================================================================
+PAPER-READY SUMMARY
+==============================================================================
+
+Across the 5,749 held-out post-drift stays:
+
+  ── Run B vs XGBoost-adapted
+    vasopressor         Run B-catches/XGBoost-adapted-misses =  19  XGBoost-adapted-catches/Run B-misses =   0  asym=∞  |  FA: Run B=434 XGBoost-adapted=0
+    intubation          Run B-catches/XGBoost-adapted-misses =   4  XGBoost-adapted-catches/Run B-misses =   0  asym=∞  |  FA: Run B=24 XGBoost-adapted=0
+    septic shock        Run B-catches/XGBoost-adapted-misses =  26  XGBoost-adapted-catches/Run B-misses =   0  asym=∞  |  FA: Run B=81 XGBoost-adapted=0
+
+  ── Run B vs Run D
+    vasopressor         Run B-catches/Run D-misses =   0  Run D-catches/Run B-misses =   0  asym=∞  |  FA: Run B=3 Run D=0
+    intubation          Run B-catches/Run D-misses =   0  Run D-catches/Run B-misses =   0  asym=∞  |  FA: Run B=0 Run D=0
+    septic shock        Run B-catches/Run D-misses =   0  Run D-catches/Run B-misses =   3  asym=0.0x  |  FA: Run B=2 Run D=142
+
+  ── Run C vs Run D
+    vasopressor         Run C-catches/Run D-misses =   0  Run D-catches/Run C-misses =   0  asym=∞  |  FA: Run C=1 Run D=2
+    intubation          Run C-catches/Run D-misses =   0  Run D-catches/Run C-misses =   0  asym=∞  |  FA: Run C=0 Run D=0
+    septic shock        Run C-catches/Run D-misses =   0  Run D-catches/Run C-misses =   1  asym=0.0x  |  FA: Run C=0 Run D=78
+
+
+===============================================================================================
+RUN B vs ALL 5 OTHER MODELS (Disagreement Summary)
+Thresholds: Catch >= 0.5, Miss < 0.1
+===============================================================================================
+
+── LABEL: VASOPRESSOR ──────────────────────────────────────────────────────────────────────
+  Model compared to Run B   | Run B Catches / Other Misses | Other Catches / Run B Misses | Asymmetry
+  ------------------------------------------------------------------------------------------------
+  Run A (Static)            |                            0 |                            0 |         ∞
+  Run C (Full Two-Stream)   |                            0 |                            0 |         ∞
+  Run D (Single-Stream)     |                            0 |                            0 |         ∞
+  XGBoost (Source)          |                            5 |                            0 |         ∞
+  XGBoost (Adapted)         |                           19 |                            0 |         ∞
+
+── LABEL: INTUBATION ──────────────────────────────────────────────────────────────────────
+  Model compared to Run B   | Run B Catches / Other Misses | Other Catches / Run B Misses | Asymmetry
+  ------------------------------------------------------------------------------------------------
+  Run A (Static)            |                            0 |                            0 |         ∞
+  Run C (Full Two-Stream)   |                            0 |                            0 |         ∞
+  Run D (Single-Stream)     |                            0 |                            0 |         ∞
+  XGBoost (Source)          |                            3 |                            0 |         ∞
+  XGBoost (Adapted)         |                            4 |                            0 |         ∞
+
+── LABEL: SEPTIC_SHOCK ──────────────────────────────────────────────────────────────────────
+  Model compared to Run B   | Run B Catches / Other Misses | Other Catches / Run B Misses | Asymmetry
+  ------------------------------------------------------------------------------------------------
+  Run A (Static)            |                            0 |                            3 |     0.00x
+  Run C (Full Two-Stream)   |                            1 |                            0 |         ∞
+  Run D (Single-Stream)     |                            0 |                            3 |     0.00x
+  XGBoost (Source)          |                            5 |                            0 |         ∞
+  XGBoost (Adapted)         |                           26 |                            0 |         ∞
+
+✅ Complete
+
+======================================================================
+FINDING NEW GOLDEN PATIENTS FOR PAPER (WORKED EXAMPLES)
+======================================================================
+
+--- Searching for VASOPRESSOR Patients ---
+  [BOTH CATCH]            -> stay_id: xxxxxxxx
+    Run B prob           : 0.6862
+    XGB prob             : 0.7946
+  [RUN B CATCH, XGB MISS] -> stay_id: xxxxxxxx
+    Run B prob           : 0.5096
+    XGB prob             : 0.0142
+
+--- Searching for INTUBATION Patients ---
+  [BOTH CATCH]            -> stay_id: xxxxxxxx
+    Run B prob           : 0.5660
+    XGB prob             : 0.5506
+  [RUN B CATCH, XGB MISS] -> stay_id: xxxxxxxx
+    Run B prob           : 0.8084
+    XGB prob             : 0.0462
+
+--- Searching for SEPTIC_SHOCK Patients ---
+  [BOTH CATCH]            -> stay_id: xxxxxxxx
+    Run B prob           : 0.8616
+    XGB prob             : 0.7038
+  [RUN B CATCH, XGB MISS] -> stay_id: xxxxxxxx
+    Run B prob           : 0.5227
+    XGB prob             : 0.0931

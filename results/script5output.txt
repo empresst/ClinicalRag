@@ -1,0 +1,120 @@
+Device: cpu
+
+Loading saved models...
+Models loaded: seq=86, treat=12, targets=3
+Loading data...
+Normalizing...
+Models loaded: seq=86, treat=12, targets=3
+
+======================================================================
+ADDITION 1: Bootstrap Confidence Intervals (N=1000)
+======================================================================
+Test-Pre: 30641 stays
+Test-Post held-out: 5749 stays
+
+Getting predictions...
+  Pre-drift:  30641 patients
+  Post-drift: 5749 patients
+  Val:        8784 patients
+
+Bootstrapping AUROC deltas on post-drift (N=1000)...
+
+Bootstrapping AUPRC deltas on post-drift (N=1000)...
+Bootstrapping AUROC deltas on pre-drift (sanity check)...
+
+======================================================================
+BOOTSTRAP RESULTS: Post-Drift (Run A vs Run B)
+======================================================================
+Label                   AUROC_A  AUROC_B        Δ             95% CI        p  Sig?
+--------------------------------------------------------------------------------
+label_vasopressor      0.8233   0.8947   +0.0713   [+0.0622, +0.0822] 0.0000  ***
+label_intubation       0.9367   0.9403   +0.0036   [+0.0018, +0.0053] 0.0000  ***
+label_septic_shock     0.9296   0.9599   +0.0303   [+0.0113, +0.0497] 0.0000  ***
+
+Label                   AUPRC_A  AUPRC_B        Δ             95% CI        p
+--------------------------------------------------------------------------------
+label_vasopressor      0.4187   0.6182   +0.1995   [+0.1721, +0.2301] 0.0000
+label_intubation       0.8475   0.8558   +0.0083   [+0.0007, +0.0159] 0.0160
+label_septic_shock     0.3100   0.4131   +0.1031   [+0.0484, +0.1553] 0.0000
+
+Pre-drift sanity check (deltas should be ~0):
+  label_vasopressor: Δ=+0.000000
+  label_intubation: Δ=+0.000000
+  label_septic_shock: Δ=+0.000000
+
+Saved → /kaggle/working/bootstrap_ci_results.json
+
+======================================================================
+ADDITION 2: XGBoost Baseline
+======================================================================
+Flattening features for XGBoost...
+  Train: (35765, 282), Val: (8784, 282)
+  Pre: (30641, 282), Post: (5749, 282)
+  Features per patient: 282 (282 named)
+
+  Training XGBoost for label_vasopressor...
+    Val:  AUROC=0.8680  AUPRC=0.6380
+    Pre:  AUROC=0.8818  AUPRC=0.6774
+    Post: AUROC=0.9148  AUPRC=0.6487
+
+  Training XGBoost for label_intubation...
+    Val:  AUROC=0.9523  AUPRC=0.8923
+    Pre:  AUROC=0.9527  AUPRC=0.8996
+    Post: AUROC=0.9475  AUPRC=0.8757
+
+  Training XGBoost for label_septic_shock...
+    Val:  AUROC=0.9245  AUPRC=0.2904
+    Pre:  AUROC=0.9305  AUPRC=0.3348
+    Post: AUROC=0.9367  AUPRC=0.3313
+
+  Training XGBoost-Adapted (retrained on post-drift adapt data)...
+    label_vasopressor adapted: AUROC=0.9330  AUPRC=0.6612
+    label_intubation adapted: AUROC=0.9413  AUPRC=0.8586
+    label_septic_shock adapted: AUROC=0.9404  AUPRC=0.2600
+
+======================================================================
+FULL MODEL COMPARISON TABLE
+======================================================================
+
+Val (source era):
+  Model                          Vaso AUROC  Intub AUROC  Shock AUROC | Vaso AUPRC  Intub AUPRC  Shock AUPRC
+  ----------------------------------------------------------------------------------------------------
+  XGBoost                            0.8680       0.9523       0.9245 |     0.6380       0.8923       0.2904
+  Two-Stream (Run A)                 0.8486       0.9385       0.9384 |     0.5728       0.8554       0.2734
+
+Test-Pre (pre 2020 - 2022):
+  Model                          Vaso AUROC  Intub AUROC  Shock AUROC | Vaso AUPRC  Intub AUPRC  Shock AUPRC
+  ----------------------------------------------------------------------------------------------------
+  XGBoost                            0.8818       0.9527       0.9305 |     0.6774       0.8996       0.3348
+  Two-Stream (Run A)                 0.8617       0.9422       0.9341 |     0.6357       0.8676       0.3082
+
+Test-Post (2020 - 2022+):
+  Model                          Vaso AUROC  Intub AUROC  Shock AUROC | Vaso AUPRC  Intub AUPRC  Shock AUPRC
+  ----------------------------------------------------------------------------------------------------
+  XGBoost (source)                   0.9148       0.9475       0.9367 |     0.6487       0.8757       0.3313
+  XGBoost (adapted)                  0.9330       0.9413       0.9404 |     0.6612       0.8586       0.2600
+  Two-Stream Run A (static)          0.8233       0.9367       0.9296 |     0.4187       0.8475       0.3100
+  Two-Stream Run B (adapted)         0.8947       0.9403       0.9599 |     0.6182       0.8558       0.4131
+
+Saved → /kaggle/working/full_comparison_results.json
+PyTorch ordering: 5749 stays
+First 5: [30002012, 30005000, 30005008, 30005199, 30008046]
+✅ Ordering matches PyTorch
+XGBoost flatten ordering first 5: [30002012, 30005000, 30005008, 30005199, 30008046]
+✅ XGBoost flatten order verified against PyTorch
+
+AUROC verification (should match Table 4):
+  label_vasopressor: source=0.9148 adapted=0.9330
+  label_intubation: source=0.9475 adapted=0.9413
+  label_septic_shock: source=0.9367 adapted=0.9404
+
+✅ Saved xgb_predictions_corrected.npz
+✅ XGBoost models saved for script9
+
+======================================================================
+BRIDGE: Computing per-patient SHAP for fig_biological_amnesia
+======================================================================
+  Matched stay_id=xxxxxxxx at XGBoost index 61
+  p_xgb_src=0.872  p_xgb_adp=0.795
+  Amnesia feature: total_crystalloid_ml  Δ=16.2670
+✅ Saved fig_amnesia_data.pkl — ready for fig_biological_amnesia_v3_patch.py

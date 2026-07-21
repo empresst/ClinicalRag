@@ -1,0 +1,227 @@
+Device: cpu
+Calculating statistics and normalizing...
+✅ Data Loaded and Normalized!
+
+Building single-stream datasets...
+Single-stream input dim (seq + treat): 98
+Train: 35765 | Val: 8784 | Test: 40243
+
+============================================================
+PHASE 1: Training single-stream source model (Run D base)
+============================================================
+  D-SRC Ep  1 | tL=0.2506 vL=0.2182 mAUROC=0.9036 *
+  D-SRC Ep  2 | tL=0.2208 vL=0.2139 mAUROC=0.9065 *
+  D-SRC Ep  4 | tL=0.2064 vL=0.2083 mAUROC=0.9107 *
+  D-SRC Ep  5 | tL=0.2024 vL=0.2126 mAUROC=0.9105 
+  D-SRC Ep 10 | tL=0.1680 vL=0.2925 mAUROC=0.9006 
+  D-SRC Early stop at epoch 12
+
+Run D source on VAL:
+  label_vasopressor: AUROC=0.8502 AUPRC=0.5784 (n_pos=1546)
+  label_intubation: AUROC=0.9432 AUPRC=0.8700 (n_pos=2366)
+  label_septic_shock: AUROC=0.9389 AUPRC=0.2710 (n_pos=155)
+
+Loaded split from script2 (drift_tag=2020 - 2022):
+  Pre-drift:  30641 stays (should be 30641)
+  Post-drift: 9602 stays (should be 9602)
+
+============================================================
+PHASE 3: Run D adaptation (LSTM frozen, head trainable)
+============================================================
+Loaded patient assignments from script2:
+  adapt-train=2885 adapt-val=968 held-out=5749  pre-buf=500
+Adapt train: 3385 (500 pre + 2885 post)
+Adapt val:   968 (post-drift, for early stopping)
+
+=== Seed 42 (Run D) ===
+  D-s42 Ep  1 | tL=0.3127 vL=0.2795 mAUROC=0.9028 *
+  D-s42 Ep  2 | tL=0.3044 vL=0.2759 mAUROC=0.9031 *
+  D-s42 Ep  3 | tL=0.3015 vL=0.2729 mAUROC=0.9039 *
+  D-s42 Ep  4 | tL=0.3005 vL=0.2714 mAUROC=0.9053 *
+  D-s42 Ep  5 | tL=0.2980 vL=0.2706 mAUROC=0.9060 *
+  D-s42 Ep  6 | tL=0.2923 vL=0.2690 mAUROC=0.9065 *
+  D-s42 Ep  7 | tL=0.2956 vL=0.2689 mAUROC=0.9069 *
+  D-s42 Ep  8 | tL=0.2929 vL=0.2684 mAUROC=0.9074 *
+  D-s42 Ep  9 | tL=0.2857 vL=0.2674 mAUROC=0.9072 *
+  D-s42 Ep 10 | tL=0.2907 vL=0.2672 mAUROC=0.9072 *
+  D-s42 Ep 11 | tL=0.2864 vL=0.2670 mAUROC=0.9066 *
+  D-s42 Ep 14 | tL=0.2857 vL=0.2659 mAUROC=0.9077 *
+  D-s42 Ep 15 | tL=0.2825 vL=0.2656 mAUROC=0.9077 *
+  D-s42 Ep 16 | tL=0.2835 vL=0.2656 mAUROC=0.9078 *
+  D-s42 Ep 18 | tL=0.2829 vL=0.2656 mAUROC=0.9078 *
+  D-s42 Ep 20 | tL=0.2874 vL=0.2661 mAUROC=0.9073 
+  D-s42 Ep 22 | tL=0.2811 vL=0.2652 mAUROC=0.9078 *
+  D-s42 Ep 25 | tL=0.2778 vL=0.2657 mAUROC=0.9077 
+  D-s42 Ep 30 | tL=0.2775 vL=0.2661 mAUROC=0.9084 
+  D-s42 Early stop at epoch 30
+
+=== Seed 123 (Run D) ===
+  D-s123 Ep  1 | tL=0.3169 vL=0.2793 mAUROC=0.9019 *
+  D-s123 Ep  2 | tL=0.3091 vL=0.2763 mAUROC=0.9033 *
+  D-s123 Ep  3 | tL=0.3011 vL=0.2746 mAUROC=0.9037 *
+  D-s123 Ep  4 | tL=0.2981 vL=0.2724 mAUROC=0.9046 *
+  D-s123 Ep  5 | tL=0.2978 vL=0.2717 mAUROC=0.9052 *
+  D-s123 Ep  6 | tL=0.2940 vL=0.2704 mAUROC=0.9057 *
+  D-s123 Ep  7 | tL=0.2894 vL=0.2698 mAUROC=0.9062 *
+  D-s123 Ep  8 | tL=0.2903 vL=0.2684 mAUROC=0.9069 *
+  D-s123 Ep  9 | tL=0.2879 vL=0.2684 mAUROC=0.9066 *
+  D-s123 Ep 10 | tL=0.2923 vL=0.2679 mAUROC=0.9066 *
+  D-s123 Ep 11 | tL=0.2900 vL=0.2672 mAUROC=0.9068 *
+  D-s123 Ep 15 | tL=0.2886 vL=0.2666 mAUROC=0.9072 *
+  D-s123 Ep 19 | tL=0.2873 vL=0.2661 mAUROC=0.9074 *
+  D-s123 Ep 20 | tL=0.2809 vL=0.2667 mAUROC=0.9077 
+  D-s123 Ep 25 | tL=0.2752 vL=0.2666 mAUROC=0.9079 
+  D-s123 Ep 27 | tL=0.2789 vL=0.2660 mAUROC=0.9081 *
+  D-s123 Ep 28 | tL=0.2819 vL=0.2658 mAUROC=0.9082 *
+  D-s123 Ep 29 | tL=0.2768 vL=0.2657 mAUROC=0.9084 *
+  D-s123 Ep 30 | tL=0.2784 vL=0.2662 mAUROC=0.9085 
+  D-s123 Ep 34 | tL=0.2795 vL=0.2655 mAUROC=0.9083 *
+  D-s123 Ep 35 | tL=0.2761 vL=0.2655 mAUROC=0.9083 
+  D-s123 Ep 36 | tL=0.2804 vL=0.2654 mAUROC=0.9084 *
+  D-s123 Ep 40 | tL=0.2774 vL=0.2657 mAUROC=0.9082 
+
+=== Seed 7 (Run D) ===
+  D-s7 Ep  1 | tL=0.3176 vL=0.2791 mAUROC=0.9016 *
+  D-s7 Ep  2 | tL=0.3091 vL=0.2753 mAUROC=0.9024 *
+  D-s7 Ep  3 | tL=0.3039 vL=0.2739 mAUROC=0.9043 *
+  D-s7 Ep  4 | tL=0.3031 vL=0.2731 mAUROC=0.9044 *
+  D-s7 Ep  5 | tL=0.2946 vL=0.2716 mAUROC=0.9051 *
+  D-s7 Ep  6 | tL=0.2970 vL=0.2713 mAUROC=0.9055 *
+  D-s7 Ep  7 | tL=0.2899 vL=0.2703 mAUROC=0.9062 *
+  D-s7 Ep  8 | tL=0.2991 vL=0.2696 mAUROC=0.9064 *
+  D-s7 Ep  9 | tL=0.2888 vL=0.2692 mAUROC=0.9065 *
+  D-s7 Ep 10 | tL=0.2890 vL=0.2688 mAUROC=0.9065 *
+  D-s7 Ep 11 | tL=0.2900 vL=0.2687 mAUROC=0.9065 *
+  D-s7 Ep 15 | tL=0.2891 vL=0.2686 mAUROC=0.9066 *
+  D-s7 Ep 16 | tL=0.2901 vL=0.2684 mAUROC=0.9063 *
+  D-s7 Ep 17 | tL=0.2860 vL=0.2680 mAUROC=0.9066 *
+  D-s7 Ep 19 | tL=0.2837 vL=0.2673 mAUROC=0.9073 *
+  D-s7 Ep 20 | tL=0.2857 vL=0.2666 mAUROC=0.9074 *
+  D-s7 Ep 25 | tL=0.2778 vL=0.2671 mAUROC=0.9067 
+  D-s7 Early stop at epoch 28
+
+=== Seed 2024 (Run D) ===
+  D-s2024 Ep  1 | tL=0.3104 vL=0.2789 mAUROC=0.9022 *
+  D-s2024 Ep  2 | tL=0.3087 vL=0.2755 mAUROC=0.9021 *
+  D-s2024 Ep  3 | tL=0.3022 vL=0.2737 mAUROC=0.9036 *
+  D-s2024 Ep  4 | tL=0.2984 vL=0.2716 mAUROC=0.9042 *
+  D-s2024 Ep  5 | tL=0.2965 vL=0.2704 mAUROC=0.9052 *
+  D-s2024 Ep  6 | tL=0.2951 vL=0.2698 mAUROC=0.9058 *
+  D-s2024 Ep  7 | tL=0.2940 vL=0.2690 mAUROC=0.9062 *
+  D-s2024 Ep  9 | tL=0.2864 vL=0.2680 mAUROC=0.9062 *
+  D-s2024 Ep 10 | tL=0.2875 vL=0.2683 mAUROC=0.9061 
+  D-s2024 Ep 14 | tL=0.2892 vL=0.2677 mAUROC=0.9063 *
+  D-s2024 Ep 15 | tL=0.2819 vL=0.2679 mAUROC=0.9061 
+  D-s2024 Ep 18 | tL=0.2897 vL=0.2676 mAUROC=0.9062 *
+  D-s2024 Ep 20 | tL=0.2857 vL=0.2676 mAUROC=0.9064 *
+  D-s2024 Ep 21 | tL=0.2835 vL=0.2675 mAUROC=0.9064 *
+  D-s2024 Ep 23 | tL=0.2781 vL=0.2675 mAUROC=0.9066 *
+  D-s2024 Ep 25 | tL=0.2774 vL=0.2680 mAUROC=0.9069 
+  D-s2024 Ep 30 | tL=0.2885 vL=0.2675 mAUROC=0.9068 *
+  D-s2024 Ep 32 | tL=0.2845 vL=0.2674 mAUROC=0.9067 *
+  D-s2024 Ep 33 | tL=0.2819 vL=0.2674 mAUROC=0.9068 *
+  D-s2024 Ep 35 | tL=0.2832 vL=0.2672 mAUROC=0.9068 *
+  D-s2024 Ep 40 | tL=0.2774 vL=0.2673 mAUROC=0.9067 
+
+=== Seed 99 (Run D) ===
+  D-s99 Ep  1 | tL=0.3122 vL=0.2797 mAUROC=0.9018 *
+  D-s99 Ep  2 | tL=0.3101 vL=0.2760 mAUROC=0.9021 *
+  D-s99 Ep  3 | tL=0.3064 vL=0.2744 mAUROC=0.9037 *
+  D-s99 Ep  4 | tL=0.2988 vL=0.2724 mAUROC=0.9046 *
+  D-s99 Ep  5 | tL=0.2959 vL=0.2715 mAUROC=0.9051 *
+  D-s99 Ep  6 | tL=0.2949 vL=0.2711 mAUROC=0.9056 *
+  D-s99 Ep  7 | tL=0.2947 vL=0.2704 mAUROC=0.9057 *
+  D-s99 Ep  8 | tL=0.2886 vL=0.2697 mAUROC=0.9060 *
+  D-s99 Ep  9 | tL=0.2861 vL=0.2695 mAUROC=0.9063 *
+  D-s99 Ep 10 | tL=0.2943 vL=0.2695 mAUROC=0.9063 *
+  D-s99 Ep 11 | tL=0.2895 vL=0.2692 mAUROC=0.9063 *
+  D-s99 Ep 12 | tL=0.2884 vL=0.2683 mAUROC=0.9068 *
+  D-s99 Ep 14 | tL=0.2831 vL=0.2682 mAUROC=0.9066 *
+  D-s99 Ep 15 | tL=0.2859 vL=0.2676 mAUROC=0.9064 *
+  D-s99 Ep 16 | tL=0.2841 vL=0.2669 mAUROC=0.9066 *
+  D-s99 Ep 20 | tL=0.2829 vL=0.2685 mAUROC=0.9058 
+  D-s99 Early stop at epoch 24
+
+--- Run D multi-seed post-drift AUROC (mean ± std, 5 seeds) ---
+  D label_vasopressor      0.8267 ± 0.0003  (seeds: [0.8269, 0.8263, 0.8271, 0.8267, 0.8266])
+  D label_intubation       0.9416 ± 0.0002  (seeds: [0.9414, 0.9419, 0.9417, 0.9418, 0.9415])
+  D label_septic_shock     0.9342 ± 0.0005  (seeds: [0.9347, 0.934, 0.9348, 0.9339, 0.9339])
+
+============================================================
+PHASE 4: Final evaluation — Run D
+============================================================
+
+--- Val (source weights) ---
+--- Test-Pre (source weights, pre-adaptation) ---
+--- Test-Post held-out (5749 stays) ---
+
+============================================================
+RUN D RESULTS
+============================================================
+
+Val (source):
+  label_vasopressor              AUROC=0.8502  AUPRC=0.5784  Brier=0.1745  (n_pos=1546)
+  label_intubation               AUROC=0.9432  AUPRC=0.8700  Brier=0.1085  (n_pos=2366)
+  label_septic_shock             AUROC=0.9389  AUPRC=0.2710  Brier=0.0541  (n_pos=155)
+
+Test-Pre (2017-19):
+  label_vasopressor              AUROC=0.8653  AUPRC=0.6330  Brier=0.1766  (n_pos=6067)
+  label_intubation               AUROC=0.9446  AUPRC=0.8773  Brier=0.1090  (n_pos=8750)
+  label_septic_shock             AUROC=0.9276  AUPRC=0.3065  Brier=0.0618  (n_pos=707)
+
+Test-Post (2020-22):
+  label_vasopressor              AUROC=0.8269  AUPRC=0.3544  Brier=0.1601  (n_pos=554)
+  label_intubation               AUROC=0.9414  AUPRC=0.8598  Brier=0.0969  (n_pos=1657)
+  label_septic_shock             AUROC=0.9347  AUPRC=0.2149  Brier=0.0324  (n_pos=76)
+
+✅ Aligned with script2 held-out set (5749 samples)
+
+--- Post-drift AUROC with 95% bootstrap CIs (A, B, C, D) ---
+  Label                  A                      B                      C                      D                     
+  label_vasopressor      0.823 [0.805,0.841]  0.895 [0.879,0.910]  0.878 [0.862,0.893]  0.827 [0.810,0.843]
+  label_intubation       0.937 [0.930,0.943]  0.940 [0.934,0.947]  0.943 [0.937,0.950]  0.941 [0.935,0.948]
+  label_septic_shock     0.930 [0.904,0.953]  0.960 [0.934,0.978]  0.953 [0.925,0.975]  0.935 [0.907,0.957]
+
+--- Paired bootstrap: Δ (B − D) ---
+  label_vasopressor      Δ=+0.0682  [+0.0572, +0.0784]  P(B>D)=1.00  → X
+  label_intubation       Δ=-0.0011  [-0.0036, +0.0016]  P(B>D)=0.20  → tie
+  label_septic_shock     Δ=+0.0255  [+0.0121, +0.0390]  P(B>D)=1.00  → X
+
+--- Paired bootstrap: Δ (C − D) ---
+  label_vasopressor      Δ=+0.0512  [+0.0426, +0.0605]  P(C>D)=1.00  → X
+  label_intubation       Δ=+0.0021  [-0.0003, +0.0044]  P(C>D)=0.96  → tie
+  label_septic_shock     Δ=+0.0184  [+0.0081, +0.0279]  P(C>D)=1.00  → X
+
+--- Paired bootstrap: Δ (D − A) ---
+  label_vasopressor      Δ=+0.0033  [-0.0052, +0.0118]  P(D>A)=0.78  → tie
+  label_intubation       Δ=+0.0048  [+0.0020, +0.0074]  P(D>A)=1.00  → X
+  label_septic_shock     Δ=+0.0052  [-0.0088, +0.0194]  P(D>A)=0.77  → tie
+
+Results saved → /kaggle/working/run_d_results.json
+Model saved → /kaggle/working/run_d_model.pt
+
+======================================================================
+SAVING FULL ADAPT MODELS — Run C + Run D
+======================================================================
+✅ Saved full_adapt_models.pt with Run C + Run D
+
+============================================================
+SUMMARY TABLE — Run D standalone
+============================================================
+Architecture: Single-stream LSTM(98→64)
+Adaptation:   LSTM frozen, head fine-tuned (0.0003 LR)
+Adaptation performed: True
+
+  Split                  Label                             AUROC    AUPRC    Brier  n_pos
+  ---------------------------------------------------------------------------------------
+  Val (source)           label_vasopressor                0.8502   0.5784   0.1745   1546
+  Val (source)           label_intubation                 0.9432   0.8700   0.1085   2366
+  Val (source)           label_septic_shock               0.9389   0.2710   0.0541    155
+  Test-Pre (2017-19)     label_vasopressor                0.8653   0.6330   0.1766   6067
+  Test-Pre (2017-19)     label_intubation                 0.9446   0.8773   0.1090   8750
+  Test-Pre (2017-19)     label_septic_shock               0.9276   0.3065   0.0618    707
+  Test-Post (2020-22)    label_vasopressor                0.8269   0.3544   0.1601    554
+  Test-Post (2020-22)    label_intubation                 0.9414   0.8598   0.0969   1657
+  Test-Post (2020-22)    label_septic_shock               0.9347   0.2149   0.0324     76
+
+✅ Run D complete

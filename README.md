@@ -1,369 +1,121 @@
-# A Drift-Adaptive Framework for Clinical Time-Series: Two-Stream Architectures with Attribution-Driven Semantic Retrieval
-
-**Fatema Ferdous Tamanna, K. M. Merajul Arefin, Md. Abdul Masud**
-
-*Manuscript prepared for Artificial Intelligence in Medicine (Elsevier), 2026*
-
----
+# Biological Amnesia in ICU Time-Series Prediction: A Drift-Adaptive Two-Stream Architecture with Temporal Retrieval
 
 ## Overview
+This repository contains the complete codebase for an adaptive clinical intelligence architecture designed to mitigate "biological amnesia"—the silent overwriting of stable physiological representations as a model adapts to shifting treatment protocols—and provide a safe, fully governable blueprint for Clinical Decision Support Systems (CDSS) deployed in non-stationary Intensive Care Units. 
 
-This repository contains all code for the paper. The framework integrates four components:
+The framework integrates four primary components:
+1. **Ongoing-need label formulation** — Replaces initiation-only labels to eliminate anti-correlation leakage and accurately capture the clinical need for interventions.
+2. **Two-stream neural architecture** — Structurally decouples stable physiological dynamics (LSTM) from evolving treatment protocols (MLP).
+3. **Dual-signal drift detection & selective adaptation with Explanation** — Uses a composite distributional and accuracy trigger to update *only* the treatment stream, freezing physiological representations.
+4. **Attribution-driven Temporal RAG** — Uses per-instance Integrated Gradients (IG) to build patient-specific PubMed queries, conditioning retrieved evidence on the detected drift era.
 
-1. **Ongoing-need label formulation** — eliminates anti-correlation leakage in ICU treatment prediction
-2. **Two-stream neural architecture** — structurally decouples stable physiological dynamics (LSTM) from evolving treatment patterns (MLP)
-3. **PSI-triggered selective adaptation** — updates only the treatment stream upon distributional shift
-4. **Attribution-driven Temporal RAG** — uses Integrated Gradients to construct era-filtered PubMed queries
+Evaluated on **84,792 MIMIC-IV v3.1 ICU stays (2008–2022)** using strict chronological splitting and subject-level decontamination.
 
-Evaluated on MIMIC-IV v3.1 (40,155 ICU stays, 2014–2022) with strict chronological splitting and subject-level decontamination.
+--------------------------------------------------------------------------------
 
----
+## Requirements & Data Access
+* **Python 3.9+** (Developed on Kaggle using a P100 GPU).
+* **MIMIC-IV v3.1 Access:** This study uses MIMIC-IV, which is freely available via PhysioNet upon credentialing. 
+* **Data Privacy:** Due to the strict PhysioNet Data Use Agreement (DUA), we **cannot share** the preprocessed patient data splits, prediction arrays, or trained model weights. All results are fully reproducible from the raw MIMIC-IV files using the provided pipeline. Aggregate population-level logs and metrics are provided in the `results/` folder.
 
-## Requirements
-
-Python 3.9+
-
-```bash
-pip install -r requirements.txt
-```
-
-Developed on Kaggle (GPU P100). Expected runtime end-to-end: ~4–6 hours on GPU. CPU runtime significantly longer.
-
----
-
-## Data Access
-
-This study uses **MIMIC-IV v3.1**, freely available via PhysioNet upon credentialing:
-https://physionet.org/content/mimiciv/3.1/
-Preprocessed patient data and model weights **cannot be shared** due to the PhysioNet Data Use Agreement. All results are reproducible from raw MIMIC-IV v3.1 using the provided scripts.
-
-Set your paths at the top of each script:
-
-```python
-DATA_PATH = Path("your/mimic-iv/path")   # raw MIMIC-IV
-BASE_PATH = Path("your/processed/path")  # parquet files from script1
-SAVE_PATH = Path("your/outputs/path")    # all outputs
-```
-
----
-
-## Repository Structure
-```text
-drift-adaptive-clinical-rag/
-│
-├── README.md
-├── requirements.txt
-├── LICENSE
-│
-├── data/
-│   └── README.md                          # MIMIC-IV access instructions
-│
-├── preprocessing/
-│   └── script1_preprocessing.py           # cohort extraction, feature engineering,
-│                                          # label formulation, forward purging
-│
-├── models/
-│   ├── architecures.py                    # Single stream, double stream model architecture
-│   ├── script2_two_stream_model.py        # Run A (static) + Run B (selective adapt)
-│   │                                      # + Run C (full adapt)
-│   └── script3_run_d_single_stream.py     # Run D (monolithic single-stream baseline)
-│
-├── evaluation/
-│   ├── script4_model_comparison.py        # 4-model AUROC/AUPRC comparison table
-│   ├── script5_xgboost_bootstrap_shap.py  # XGBoost training + bootstrap BCa CIs
-│                                          # + SHAP delta attribution
-│   ├── script6_disagreement_matrix.py     # bidirectional disagreement matrix
-│                                          # all 6 models, worked examples
-│   ├── script7_psi_sensitivity.py         # PSI threshold sensitivity sweep
-│   ├── script8_ablation_studies.py        # split ratio + replay buffer ablation
-│   └── script9_shap_analysis.py           # standalone SHAP CI + delta analysis
-│
-├── rag/
-│   ├── script10_rag_synthetic.py          # expanded synthetic corpus (proof of concept)
-│   ├── script11_rag_pubmed_easy.py        # PubMed easy corpus (815 abstracts, 1:1 ratio)
-│   ├── script12_rag_pubmed_hard.py        # PubMed hard corpus (917 abstracts, 1:4.9
-│                                          # ratio) — PRIMARY REPORTED RESULTS
-│   └── script13_rag_pubmed_mesh.py        # MeSH corpus (749 abstracts) — secondary
-│
-├── corpus/
-│   └── pubmed_corpus_hard.json            # 917 PubMed abstracts used in RAG evaluation
-│                                          # (155 relevant / 274 hard-negative / 488 noise)
-│                                          # No MIMIC data — freely shareable
-│
-├── supplements/
-│   ├── script14_decontamination_verification.py  # subject leakage verification table
-│   ├── script15_septic_shock_24_cases.py         # 24 caught septic shock cases analysis
-│   └── script16_table2_demographics.py           # Table 2 patient characteristics
-│
-└──   utils/
-    ├── __init__.py           # Marks directory as module
-    ├── constants.py          # Global features and configurations
-    ├── data_utils.py         # Loading, normalizing, and datasets
-    ├── train_utils.py        # Custom loss and weighting
-    ├── metrics_utils.py      # Evaluation and bootstrap math
-    ├── xai_utils.py          # SHAP explainability toolset
-    └── rag_utils.py          # Document retrieval and generation  
-
-```
----
+--------------------------------------------------------------------------------
 
 ## Execution Order
+The pipeline is strictly sequential. Scripts must be run in the following order:
 
-### Step 1 — Preprocessing
+### 1. Data Generation
+* **`preprocessing/script1_preprocessing.py`**
+  * **Input:** Raw MIMIC-IV CSVs (`hosp/`, `icu/`)
+  * **Output:** `train/val/test_final_enriched.parquet`, `mimiciv_demographics.parquet`, `feature_meta.json`
+  * **Note:** Applies the "Ongoing Need" label formulation.
 
-```bash
-python preprocessing/script1_preprocessing.py
-```
+### 2. Model Training & Drift Adaptation
+* **`models/script2_two_stream_model.py`**
+  * **Action:** Trains Run A (static), Run B (selective adaptation), Run C (full adaptation). Detects 2020-2022 drift. 
+  * **Output:** `two_stream_models.pt`, `eval_split.json` (subject-level locks), `clinical_drift_audit.txt`.
+  * **`utils/drift_explainability.py`**: The automated governance module. It is called directly during `script2`'s adaptation phase to perform permutation-based feature ablation. It generates the human-readable `clinical_drift_audit.txt` log.
+* **`models/script3_run_d_single_stream.py`**
+  * **Action:** Trains Run D (monolithic single-stream LSTM baseline with late-fusion).
 
-**Input:** Raw MIMIC-IV CSVs (hosp/, icu/ directories)  
-**Output:**
-- `train_final_enriched.parquet`
-- `val_final_enriched.parquet`
-- `test_final_enriched.parquet`
-- `mimiciv_demographics.parquet`
-- `feature_meta.json`
+### 3. Evaluation & Baseline Comparisons
+* **`evaluation/script5_xgboost_bootstrap_shap.py`**
+  * **Action:** Trains XGBoost baselines (Source and Adapted), calculates Bootstrap CIs, and extracts population-level SHAP values. 
+  * **Output:** `bootstrap_ci_results.json`, `full_comparison_results.json`, `xgb_predictions_corrected.npz`.
+* **`evaluation/script6_disagreement_matrix.py`**
+  * **Action:** Generates the bedside disagreement analysis comparing all models.
+  * **Output:** `disagreement_matrix_results_with_runD.json`, and disagreement matrix `.png` figures.
+* **`evaluation/script7_absolute_counts.py`**
+  * **Action:** Computes absolute TP/FP/TN/FN counts across models at standard thresholds.
+  * **Output:** `absolute_counts_per_model.json`.
 
----
+### 4. Explainability & Retrieval (RAG)
+* **`evaluation/script_mc4_delta_attribution.py`**
+  * **Action:** Computes population-level ∆-Attribution metrics to formally quantify biological amnesia.
+  * **Output:** `delta_attribution_table.json`, `delta_attribution_summary.txt`.
+* **`evaluation/fig.py`**
+  * **Action:** Generates the 5-panel Biological Amnesia figure illustrating stable IG attributions (Run B) vs. shifting SHAP attributions (XGBoost).
+  * **Output:** `fig_biological_amnesia_v3.png`.
+* **`rag/script13_rag_pubmed_final.py`**
+  * **Action:** Executes the Attribution-Driven Temporal RAG pipeline using MedCPT. 
+  * **Output:** `pubmed_rag_summary.json` and outputs for the clinician-rated scaffold.
 
-### Step 2 — Two-Stream Model (Run A, B, C)
-
-```bash
-python models/script2_two_stream_model.py
-```
-
-**Input:** Parquet files from Step 1  
-**Output:**
-- `two_stream_models.pt` — source weights (Run A) + adapted weights (Run B)
-- `temp_run_c_weights.pt` — full adaptation ablation (Run C)
-- `eval_post_stays.json` — locked held-out evaluation set (5,761 stays)
-
----
-
-### Step 3 — Single-Stream Baseline (Run D)
-
-```bash
-python models/script3_run_d_single_stream.py
-```
-
-**Input:** Parquet files + `two_stream_models.pt`  
-**Output:**
-- `full_adapt_models.pt` — Run C and Run D weights
-
----
-
-### Step 4 — Model Comparison Table
-
-```bash
-python evaluation/script4_model_comparison.py
-```
-
-**Input:** Parquet files + both `.pt` files + `eval_post_stays.json`  
-**Output:** Printed 4-model AUROC/AUPRC comparison (Table 3 and Table 4)
-
----
-
-### Step 5 — XGBoost Baseline + Bootstrap CIs + SHAP
-
-```bash
-python evaluation/script5_xgboost_bootstrap_shap.py
-```
-
-**Input:** Parquet files + `two_stream_models.pt` + `eval_post_stays.json`  
-**Output:**
-- `bootstrap_ci_results.json` — BCa-corrected 95% CIs (Table 5)
-- `full_comparison_results.json` — all model metrics
-- `xgb_predictions.npz` — raw XGBoost predictions
-- `xgb_source_{label}.pkl` — saved XGBoost source models
-- `xgb_adapted_{label}.pkl` — saved XGBoost adapted models
-
----
-
-### Step 6 — Disagreement Matrix
-
-```bash
-python evaluation/script6_disagreement_matrix.py
-```
-
-**Input:** Both `.pt` files + `xgb_predictions_corrected.npz` + `eval_post_stays.json`  
-**Output:**
-- `post_drift_predictions_with_runD.npz` — aligned prediction arrays all 6 models
-- `disagreement_matrix_results_with_runD.json` — Table 6 numbers
-- `disagreement_matrices_abc.png`
-- `disagreement_matrices_runD.png`
-
-> **Note:** This script requires `xgb_predictions_corrected.npz` which is generated
-> by running the correction cell at the end of script5. See script5 comments for details.
-> The correction ensures XGBoost and PyTorch prediction arrays share identical
-> patient ordering before comparison.
-
----
-
-### Step 7 — PSI Threshold Sensitivity
-
-```bash
-python evaluation/script7_psi_sensitivity.py
-```
-
-**Input:** Parquet files + `two_stream_models.pt` + `eval_post_stays.json`  
-**Output:** `psi_sensitivity.png` + printed results (Section 3.2)
-
-> **Note:** Uses quantile-based PSI binning for continuous features and
-> two-bin PSI for binary features. Because observed maximum PSI (1.035)
-> substantially exceeds all tested thresholds (0.10–0.40), adaptation
-> triggers uniformly across the sweep — demonstrating robustness of the
-> 0.20 threshold rather than threshold sensitivity in the traditional sense.
-> This is acknowledged in the paper (Section 3.2).
-
----
-
-### Step 8 — Ablation Studies
-
-```bash
-python evaluation/script8_ablation_studies.py
-```
-
-**Input:** Parquet files + `two_stream_models.pt`  
-**Output:** Printed ablation results (Table 9 and Table 10)
-
----
-
-### Step 9 — SHAP Analysis (Standalone)
-
-```bash
-python evaluation/script9_shap_analysis.py
-```
-
-**Input:** Parquet files + `two_stream_models.pt` + XGBoost `.pkl` files from Step 5  
-**Output:**
-- `shap_ci_results.json` — per-feature SHAP importance with 95% CIs
-- `shap_delta_results.json` — ΔΦ delta-attribution between adapted and source
-
-> **Note:** SHAP analysis is also embedded within script5 as part of the full
-> pipeline. This standalone script enables independent reproduction without
-> rerunning the full XGBoost training pipeline.
-
----
-
-### Steps 10–13 — RAG Evaluation
-
-RAG scripts require a free NCBI API key:
-https://www.ncbi.nlm.nih.gov/account/settings/
-Set as environment variable:
-
-```bash
-export NCBI_API_KEY="your_key_here"
-```
-
-```bash
-python rag/script10_rag_synthetic.py    # synthetic corpus — proof of concept
-python rag/script11_rag_pubmed_easy.py  # easy PubMed corpus
-python rag/script12_rag_pubmed_hard.py  # hard corpus — PRIMARY REPORTED RESULTS
-python rag/script13_rag_pubmed_mesh.py  # MeSH corpus — secondary corroboration
-```
-
-**Input:** Parquet files + `two_stream_models.pt` + `eval_post_stays.json`  
-**Output:** RAG retrieval metrics (Table 8) + retrieved evidence per patient
-
-> The 917-abstract corpus used in the primary evaluation is pre-built and
-> available at `corpus/pubmed_corpus_hard.json`. RAG retrieval results
-> can be verified against this corpus without MIMIC-IV access.
-
----
-
-### Supplementary Scripts
-
-```bash
-python supplements/script14_decontamination_verification.py
-```
-
-**Output:** Subject leakage verification across all 6 partition pairs + supplementary decontamination table
-
-```bash
-python supplements/script15_septic_shock_24_cases.py
-```
-
-**Output:** Clinical feature summary and SHAP analysis of 24 septic shock cases caught by Run B and missed by XGBoost-adapted
-
-```bash
-python supplements/script16_table2_demographics.py
-```
-
-**Output:** Table 2 patient characteristics across temporal cohorts
-
----
-
-## RAG Corpus
-
-The 917-abstract PubMed corpus used in the primary RAG evaluation is included at:
-
-This file contains no MIMIC-IV patient data and is freely shareable. It includes:
-- 155 target-relevant abstracts
-- 274 semantically proximate hard negatives
-- 488 general noise abstracts
-- Temporal labels (pre-COVID / post-COVID) based on publication date
-
-Anyone can verify RAG retrieval results against this corpus **without MIMIC-IV access**.
-
----
+--------------------------------------------------------------------------------
 
 ## Key Results
 
-| Model | Vasopressor AUROC | Intubation AUROC | Septic Shock AUROC | mAUROC |
-|---|---|---|---|---|
-| XGBoost (Source) | 0.9497 | 0.9565 | 0.9584 | 0.9549 |
-| XGBoost (Adapted) | 0.9728 | 0.9553 | 0.9687 | 0.9656 |
-| Run A (Static) | 0.9460 | 0.9495 | 0.9596 | 0.9517 |
-| Run B (Proposed) | **0.9601** | **0.9526** | **0.9672** | **0.9600** |
-| Run C (Full Adapt) | 0.9587 | 0.9536 | 0.9600 | 0.9574 |
-| Run D (Single-Stream) | 0.9532 | 0.9520 | 0.9573 | 0.9541 |
+### 1. Bedside Clinical Safety and Calibration
+While monolithic retraining (XGBoost) achieved high aggregate AUROC, it exhibited probability mass compression on the rarest condition evaluated (septic shock). Our Two-Stream framework (Run B) mitigated this compression and safely triggered true-positive alerts:
 
-**Key clinical finding:** Run B caught 24 true-positive septic shock cases missed by XGBoost-adapted (zero reverse misses), while halving vasopressor calibration error (Brier 0.0852 → 0.0419).
+* **Disagreement Asymmetry:** In a threshold-based disagreement analysis (Catch ≥ 0.50, Miss < 0.10), Run B identified **26 true-positive septic shock cases** that the XGBoost-adapted model missed. Zero cases were missed in the reverse direction.
+* **Precision-Recall (AUPRC):** After adaptation, the monolithic XGBoost baseline's septic shock AUPRC dropped from 0.3313 to 0.2600. Our selective adaptation framework improved septic shock AUPRC to **0.4131**.
+* **Calibration:** Run B improved the Septic Shock Brier score to **0.0184**, whereas the static baseline yielded 0.0613.
 
-**RAG performance (PubMed Hard corpus):** Post-drift Precision@3 = 0.956, HardNeg@5 reduced from 0.240 (pre-drift) to 0.053 (post-drift).
+### 2. Mitigating Biological Amnesia
+* **Architectural Guarantee:** Monolithic retraining unintentionally altered stable physiological representations while adapting to new protocols. By structurally decoupling the streams, the Two-Stream framework mathematically preserves the physiological representations (physio mean_rel_Δ = 0.0000).
+* **Population-Level $\Delta$-Attribution:** Population-level analysis showed that full retraining significantly distorted 93.6% of feature attributions. Run B confined all adaptations exclusively to the treatment and fusion streams, leaving physiological weights bitwise identical to the source model.
 
----
+### 3. Attribution-Driven Temporal RAG
+Because Run B structurally locks the physiological representations, it maintains consistent medical evidence retrieval even as clinical protocols drift.
+* **Retrieval Stability:** Run B maintained a Physiology Jaccard overlap of **0.573** with the pre-drift era documents, compared to 0.330 for the retrained baseline. 
+* **Retrieval Quality:** Run B achieved an automatic **MeSH P@5 of 0.635** and a **Clinician-rated P@5 of 0.800**, ensuring that retrieved PubMed literature remains anchored to the patient's actual biology.
 
-## Important Implementation Notes
+--------------------------------------------------------------------------------
 
-**XGBoost–PyTorch ordering alignment**
+## Automated Governance Audit Logs
+Unlike monolithic retraining, our Two-Stream framework generates human-readable, causal audit logs at each adaptation event. This ensures model updates remain transparent, interpretable, and contestable by clinicians. 
 
-The disagreement matrix (script6) compares XGBoost and PyTorch model predictions at the patient level. Both models sort patients by `stay_id` ascending internally, but the saved `xgb_predictions.npz` file may not match this ordering. Script6 includes an explicit ordering verification and realignment step. A corrected predictions file (`xgb_predictions_corrected.npz`) is generated automatically.
+For example, when detecting the severe protocol shifts in the 2020–2022 COVID-19 cohort, the system automatically generated the following explanation (`clinical_drift_audit.txt`) before adapting its weights:
 
-**PSI binning**
+> **🚨 CLINICAL PRACTICE SHIFT DETECTED**
+> Between the training period (2014-2016) and the new data (2020-2022), patient treatment patterns have changed significantly.
+> 
+> **Key clinical changes driving this update:**
+> * **Total Crystalloid Ml:** Average value decreased from 791.01 to 254.97 (Severe Drift PSI: 0.76)
+> * **Early Antibiotic:** Usage increased by 14.3% in the newer data.
+> * **Insulin Infusion:** Usage dropped by 8.0% in the newer data.
+> * **Blood Products:** Usage dropped by 8.0% in the newer data.
+> * **Early Steroid:** Usage increased by 6.5% in the newer data.
+> 
+> *FINAL MODEL UPDATE AUDIT LOG:*
+> *To maintain accuracy safely, the model locked its physiological representation and exclusively updated its treatment and fusion layers. This restores accuracy by forcing the network to relearn the specific features that carry high predictive importance but suffered from severe real-world drift (most notably Total Crystalloid Ml and Early Antibiotic).*
 
-Script7 uses quantile-based binning for continuous treatment features and two-bin PSI for binary features (e.g., `has_norepinephrine_obs`, `gender_M`). Linear binning is avoided due to skewed distributions in features like `total_crystalloid_ml`.
+--------------------------------------------------------------------------------
 
-**Repeated code across scripts**
+## RAG Evaluation Data
+If a local corpus is not found, the script `rag/script13_rag_pubmed_final.py` will automatically ping the NCBI API to reconstruct the era-matched 522-abstract PubMed corpus. 
 
-`ICUDataset`, `TwoStreamModel`, `load_split()`, and `normalize()` are intentionally duplicated across scripts for standalone reproducibility. Each script can be run independently without importing from other scripts.
+For transparency, we have included `pubmed_rag_rater_output.csv` in the repository. This file contains the specific abstracts retrieved during our Temporal RAG evaluation and the human-annotated relevance scores used to calculate the Clinician-rated P@5 metric. Because this file contains only public medical abstracts and binary ratings, it contains no patient data and is freely shareable.
 
----
-
-## Citation
-
-```bibtex
-@article{tamanna2026drift,
-  title   = {A Drift-Adaptive Framework for Clinical Time-Series: 
-             Two-Stream Architectures with Attribution-Driven Semantic Retrieval},
-  author  = {Tamanna, Fatema Ferdous and Arefin, K. M. Merajul and Masud, Md. Abdul},
-  journal = {Artificial Intelligence in Medicine},
-  year    = {2026},
-  note    = {Under review}
-}
-```
-
----
+--------------------------------------------------------------------------------
 
 ## License
-
 MIT License. See `LICENSE` for details.
 
----
+--------------------------------------------------------------------------------
 
 ## Contact
-
 **Fatema Ferdous Tamanna** (Corresponding Author)  
-Dept. of Computer Science and Engineering  
+Dept. of Computer Science and Information Technology  
 Patuakhali Science and Technology University, Bangladesh  
 fatimatamannaah@gmail.com  
 ORCID: 0009-0002-2101-4391

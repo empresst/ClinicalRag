@@ -1,0 +1,511 @@
+Device: cpu
+Loading data...
+✅ Val temporal integrity confirmed: {'2011 - 2013'}
+✅ TRAIN_YEARS validated against data
+
+--- Label-leakage audit on treatment timing features ---
+Calculating statistics and normalizing...
+✅ Data Loaded and Normalized!
+Building datasets...
+Train: 35765 | Val: 8784 | Test: 40243
+Seq features: 86 | Treat features: 12
+  ✅ All stays have ≥ 6 hours
+
+Model: seq_dim=86, treat_dim=12, targets=3
+Pos weights: [ 4.89  2.67 20.  ]
+
+============================================================
+PHASE 1: Training source ensemble (5 seeds) on 2008-2013
+============================================================
+
+--- Source seed 42 ---
+  SRC-s42 Ep  1 | tL=0.2491 vL=0.2209 mAUROC=0.9011 *
+  SRC-s42 Ep  2 | tL=0.2266 vL=0.2125 mAUROC=0.9063 *
+  SRC-s42 Ep  5 | tL=0.2031 vL=0.2169 mAUROC=0.9069 
+  SRC-s42 Ep 10 | tL=0.1796 vL=0.2363 mAUROC=0.9057 
+  SRC-s42 Early stop at epoch 10
+  Seed 42 val mAUROC = 0.9063
+
+--- Source seed 123 ---
+  SRC-s123 Ep  1 | tL=0.2495 vL=0.2224 mAUROC=0.9023 *
+  SRC-s123 Ep  2 | tL=0.2232 vL=0.2117 mAUROC=0.9079 *
+  SRC-s123 Ep  3 | tL=0.2152 vL=0.2111 mAUROC=0.9085 *
+  SRC-s123 Ep  5 | tL=0.2013 vL=0.2147 mAUROC=0.9109 
+  SRC-s123 Ep 10 | tL=0.1749 vL=0.2454 mAUROC=0.9038 
+  SRC-s123 Early stop at epoch 11
+  Seed 123 val mAUROC = 0.9085
+
+--- Source seed 7 ---
+  SRC-s7 Ep  1 | tL=0.2480 vL=0.2210 mAUROC=0.9028 *
+  SRC-s7 Ep  2 | tL=0.2214 vL=0.2180 mAUROC=0.9057 *
+  SRC-s7 Ep  3 | tL=0.2165 vL=0.2133 mAUROC=0.9080 *
+  SRC-s7 Ep  5 | tL=0.2048 vL=0.2147 mAUROC=0.9079 
+  SRC-s7 Ep 10 | tL=0.1744 vL=0.2644 mAUROC=0.9035 
+  SRC-s7 Early stop at epoch 11
+  Seed 7 val mAUROC = 0.9080
+
+--- Source seed 2024 ---
+  SRC-s2024 Ep  1 | tL=0.2488 vL=0.2194 mAUROC=0.9037 *
+  SRC-s2024 Ep  2 | tL=0.2211 vL=0.2159 mAUROC=0.9064 *
+  SRC-s2024 Ep  3 | tL=0.2129 vL=0.2109 mAUROC=0.9091 *
+  SRC-s2024 Ep  5 | tL=0.2008 vL=0.2276 mAUROC=0.9081 
+  SRC-s2024 Ep 10 | tL=0.1715 vL=0.2692 mAUROC=0.9001 
+  SRC-s2024 Early stop at epoch 11
+  Seed 2024 val mAUROC = 0.9091
+
+--- Source seed 99 ---
+  SRC-s99 Ep  1 | tL=0.2503 vL=0.2236 mAUROC=0.8976 *
+  SRC-s99 Ep  2 | tL=0.2220 vL=0.2133 mAUROC=0.9082 *
+  SRC-s99 Ep  3 | tL=0.2144 vL=0.2109 mAUROC=0.9114 *
+  SRC-s99 Ep  4 | tL=0.2083 vL=0.2104 mAUROC=0.9100 *
+  SRC-s99 Ep  5 | tL=0.2039 vL=0.2112 mAUROC=0.9089 
+  SRC-s99 Ep 10 | tL=0.1736 vL=0.2607 mAUROC=0.9042 
+  SRC-s99 Early stop at epoch 12
+  Seed 99 val mAUROC = 0.9100
+
+Source ensemble val mAUROC: 0.9084 ± 0.0014  (range [0.9063, 0.9100])
+Canonical source (median): seed 123 (mAUROC=0.9085)
+
+Canonical source on VAL:
+  label_vasopressor: AUROC=0.8486 AUPRC=0.5728 (n_pos=1546)
+  label_intubation: AUROC=0.9385 AUPRC=0.8554 (n_pos=2366)
+  label_septic_shock: AUROC=0.9384 AUPRC=0.2734 (n_pos=155)
+
+Run A: fully frozen (canonical source)
+Run B: LSTM frozen, treat+fusion trainable
+Run C: all layers trainable (full fine-tune on post-drift data)
+
+Drift monitoring: 3 continuous + 7 binary features
+
+============================================================
+PHASE 2a: Multi-signal drift detection (PSI + Ensemble Performance)
+============================================================
+Groups: ['2008 - 2010', '2011 - 2013', '2014 - 2016', '2017 - 2019', '2020 - 2022']
+Pooled ref_edges from 2 training groups for 3 features
+  [TRAIN→TRAIN] 2008 - 2010 → 2011 - 2013: dist=0.0095 (n_feat=2) | ΔAUROC=-0.0086 ± 0.0016 (n_sig=0)  [baseline: val (held-out)]
+  [TRAIN→TEST] 2011 - 2013 → 2014 - 2016: dist=0.0147 (n_feat=2) | ΔAUROC=-0.0003 ± 0.0024 (n_sig=0)  [baseline: val (held-out)]
+  [TEST→TEST] 2014 - 2016 → 2017 - 2019: dist=0.0155 (n_feat=4) | ΔAUROC=-0.0086 ± 0.0035 (n_sig=0)  [baseline: val (held-out)]
+  [TEST→TEST] 2017 - 2019 → 2020 - 2022: dist=0.2324 (n_feat=5) | ΔAUROC=+0.0082 ± 0.0046 (n_sig=0)  [baseline: val (held-out)]
+
+Baseline dist=0.0095 → threshold=0.0191
+Per-label AUROC trigger: mean_drop > 0.02 on >= 1 label(s) (ensemble of 5 source seeds)
+
+  Test pair 2011 - 2013 → 2014 - 2016: dist_ok=False perf_ok=False (n_sig=0) → ✓ stable
+    label_vasopressor: mean_ΔAUROC=-0.0138  std=0.0024
+    label_intubation: mean_ΔAUROC=+0.0018  std=0.0024
+    label_septic_shock: mean_ΔAUROC=+0.0111  std=0.0024
+
+  Test pair 2014 - 2016 → 2017 - 2019: dist_ok=False perf_ok=False (n_sig=0) → ✓ stable
+    label_vasopressor: mean_ΔAUROC=-0.0192  std=0.0035
+    label_intubation: mean_ΔAUROC=-0.0033  std=0.0035
+    label_septic_shock: mean_ΔAUROC=-0.0032  std=0.0035
+
+  Test pair 2017 - 2019 → 2020 - 2022: dist_ok=True perf_ok=False (n_sig=0) → ⚠ DRIFT
+    label_vasopressor: mean_ΔAUROC=+0.0197  std=0.0046
+    label_intubation: mean_ΔAUROC=+0.0055  std=0.0046
+    label_septic_shock: mean_ΔAUROC=-0.0006  std=0.0046
+
+--- Cumulative performance tracking vs source ENSEMBLE val baseline ---
+  Source ensemble val baseline: vasopressor=0.8479 | intubation=0.9404 | septic_shock=0.9368
+    label_vasopressor: range [0.8464, 0.8487]  std=0.0010
+    label_intubation: range [0.9344, 0.9445]  std=0.0040
+    label_septic_shock: range [0.9335, 0.9385]  std=0.0020
+
+  2014 - 2016: ensemble mean_drop_vs_val=-0.0003  n_labels_dropped=0  ✓ within tolerance
+    label_vasopressor: mean_drop=-0.0138  seed_std=0.0015
+    label_intubation: mean_drop=+0.0018  seed_std=0.0051
+    label_septic_shock: mean_drop=+0.0111  seed_std=0.0025
+
+  2017 - 2019: ensemble mean_drop_vs_val=-0.0086  n_labels_dropped=0  ✓ within tolerance
+    label_vasopressor: mean_drop=-0.0192  seed_std=0.0017
+    label_intubation: mean_drop=-0.0033  seed_std=0.0052
+    label_septic_shock: mean_drop=-0.0032  seed_std=0.0042
+
+  2020 - 2022: ensemble mean_drop_vs_val=+0.0082  n_labels_dropped=0  ✓ within tolerance
+    label_vasopressor: mean_drop=+0.0197  seed_std=0.0048
+    label_intubation: mean_drop=+0.0055  seed_std=0.0059
+    label_septic_shock: mean_drop=-0.0006  seed_std=0.0045
+
+✅ Drift onset: 2020 - 2022
+   Pre : ['2008 - 2010', '2011 - 2013', '2014 - 2016', '2017 - 2019']
+   Post: ['2020 - 2022']
+
+Pre-drift test stays:  30641
+Post-drift test stays: 9602
+
+Drifted features in post-drift groups: 5
+  ⚠ has_blood_products_obs
+  ⚠ has_insulin_infusion_obs
+  ⚠ time_to_first_abx_order_hrs
+  ⚠ total_crystalloid_ml
+  ⚠ total_prbc_ml
+Saved → /kaggle/working/drift_changepoint.png
+
+════════════════════════════════════════════════════════════
+DRIFT EXPLAINABILITY — Feature-level analysis
+════════════════════════════════════════════════════════════
+
+======================================================================
+DETAILED DRIFT ANALYSIS & EXPLANATION
+======================================================================
+🚨 CLINICAL PRACTICE SHIFT DETECTED
+Between the training period (2014-2016) and the new data (2020-2022), patient treatment patterns have changed significantly.
+The model will now trigger an adaptation phase to account for these shifts.
+
+Key clinical changes driving this update:
+• Total Crystalloid Ml: Average value decreased from 791.01 to 254.97 (Severe Drift PSI: 0.76)
+• Early Antibiotic: Usage increased by 14.3% in the newer data.
+• Insulin Infusion: Usage dropped by 8.0% in the newer data.
+• Blood Products: Usage dropped by 8.0% in the newer data.
+• Early Steroid: Usage increased by 6.5% in the newer data.
+
+--- Drift detected (5 features). Running adaptation under 5 seeds ---
+  Subjects (post-drift): total=7918 | adapt_train=2375 | adapt_val=791 | eval=4752
+  Stays    (post-drift): adapt_train=2885 | adapt_val=968 | eval=5749
+  Adapt-train: 2885 post-drift + 500 pre-drift buffer (14.8% buffer)
+
+=== Seed 42 ===
+  B-s42 Ep  1 | tL=0.3213 vL=0.2854 mAUROC=0.8946 *
+  B-s42 Ep  2 | tL=0.3123 vL=0.2787 mAUROC=0.9002 *
+  B-s42 Ep  3 | tL=0.2939 vL=0.2723 mAUROC=0.9061 *
+  B-s42 Ep  4 | tL=0.2916 vL=0.2672 mAUROC=0.9112 *
+  B-s42 Ep  5 | tL=0.2880 vL=0.2629 mAUROC=0.9154 *
+  B-s42 Ep  6 | tL=0.2836 vL=0.2593 mAUROC=0.9206 *
+  B-s42 Ep  7 | tL=0.2801 vL=0.2552 mAUROC=0.9245 *
+  B-s42 Ep  8 | tL=0.2754 vL=0.2503 mAUROC=0.9276 *
+  B-s42 Ep  9 | tL=0.2693 vL=0.2501 mAUROC=0.9289 *
+  B-s42 Ep 10 | tL=0.2692 vL=0.2480 mAUROC=0.9307 *
+  B-s42 Ep 11 | tL=0.2748 vL=0.2423 mAUROC=0.9343 *
+  B-s42 Ep 13 | tL=0.2567 vL=0.2393 mAUROC=0.9367 *
+  B-s42 Ep 14 | tL=0.2599 vL=0.2375 mAUROC=0.9378 *
+  B-s42 Ep 15 | tL=0.2609 vL=0.2358 mAUROC=0.9386 *
+  B-s42 Ep 16 | tL=0.2578 vL=0.2339 mAUROC=0.9399 *
+  B-s42 Ep 17 | tL=0.2563 vL=0.2326 mAUROC=0.9404 *
+  B-s42 Ep 18 | tL=0.2516 vL=0.2325 mAUROC=0.9406 *
+  B-s42 Ep 20 | tL=0.2482 vL=0.2351 mAUROC=0.9407 
+  B-s42 Ep 21 | tL=0.2464 vL=0.2315 mAUROC=0.9415 *
+  B-s42 Ep 23 | tL=0.2495 vL=0.2312 mAUROC=0.9421 *
+  B-s42 Ep 25 | tL=0.2442 vL=0.2345 mAUROC=0.9411 
+  B-s42 Ep 30 | tL=0.2442 vL=0.2341 mAUROC=0.9419 
+  B-s42 Early stop at epoch 31
+  C-s42 Ep  1 | tL=0.3142 vL=0.2809 mAUROC=0.9008 *
+  C-s42 Ep  2 | tL=0.2937 vL=0.2731 mAUROC=0.9069 *
+  C-s42 Ep  3 | tL=0.2748 vL=0.2716 mAUROC=0.9098 *
+  C-s42 Ep  4 | tL=0.2619 vL=0.2696 mAUROC=0.9141 *
+  C-s42 Ep  5 | tL=0.2592 vL=0.2668 mAUROC=0.9153 *
+  C-s42 Ep  6 | tL=0.2438 vL=0.2668 mAUROC=0.9188 *
+  C-s42 Ep  9 | tL=0.2260 vL=0.2647 mAUROC=0.9267 *
+  C-s42 Ep 10 | tL=0.2203 vL=0.2691 mAUROC=0.9286 
+  C-s42 Ep 15 | tL=0.1910 vL=0.2851 mAUROC=0.9282 
+  C-s42 Early stop at epoch 17
+
+=== Seed 123 ===
+  B-s123 Ep  1 | tL=0.3188 vL=0.2857 mAUROC=0.8960 *
+  B-s123 Ep  2 | tL=0.3020 vL=0.2777 mAUROC=0.9012 *
+  B-s123 Ep  3 | tL=0.2990 vL=0.2723 mAUROC=0.9073 *
+  B-s123 Ep  4 | tL=0.2931 vL=0.2658 mAUROC=0.9120 *
+  B-s123 Ep  5 | tL=0.2897 vL=0.2640 mAUROC=0.9152 *
+  B-s123 Ep  6 | tL=0.2788 vL=0.2614 mAUROC=0.9180 *
+  B-s123 Ep  7 | tL=0.2823 vL=0.2580 mAUROC=0.9216 *
+  B-s123 Ep  8 | tL=0.2763 vL=0.2535 mAUROC=0.9245 *
+  B-s123 Ep  9 | tL=0.2790 vL=0.2514 mAUROC=0.9273 *
+  B-s123 Ep 10 | tL=0.2725 vL=0.2463 mAUROC=0.9308 *
+  B-s123 Ep 11 | tL=0.2740 vL=0.2444 mAUROC=0.9326 *
+  B-s123 Ep 12 | tL=0.2702 vL=0.2418 mAUROC=0.9347 *
+  B-s123 Ep 13 | tL=0.2699 vL=0.2409 mAUROC=0.9357 *
+  B-s123 Ep 15 | tL=0.2617 vL=0.2428 mAUROC=0.9352 
+  B-s123 Ep 16 | tL=0.2563 vL=0.2389 mAUROC=0.9372 *
+  B-s123 Ep 18 | tL=0.2471 vL=0.2388 mAUROC=0.9387 *
+  B-s123 Ep 19 | tL=0.2520 vL=0.2357 mAUROC=0.9394 *
+  B-s123 Ep 20 | tL=0.2528 vL=0.2387 mAUROC=0.9388 
+  B-s123 Ep 22 | tL=0.2488 vL=0.2328 mAUROC=0.9412 *
+  B-s123 Ep 24 | tL=0.2449 vL=0.2326 mAUROC=0.9418 *
+  B-s123 Ep 25 | tL=0.2416 vL=0.2318 mAUROC=0.9425 *
+  B-s123 Ep 30 | tL=0.2391 vL=0.2338 mAUROC=0.9419 
+  B-s123 Early stop at epoch 33
+  C-s123 Ep  1 | tL=0.3153 vL=0.2805 mAUROC=0.9011 *
+  C-s123 Ep  2 | tL=0.2949 vL=0.2706 mAUROC=0.9089 *
+  C-s123 Ep  3 | tL=0.2796 vL=0.2686 mAUROC=0.9123 *
+  C-s123 Ep  4 | tL=0.2621 vL=0.2679 mAUROC=0.9138 *
+  C-s123 Ep  5 | tL=0.2554 vL=0.2671 mAUROC=0.9165 *
+  C-s123 Ep  7 | tL=0.2323 vL=0.2669 mAUROC=0.9208 *
+  C-s123 Ep  8 | tL=0.2264 vL=0.2659 mAUROC=0.9238 *
+  C-s123 Ep 10 | tL=0.2203 vL=0.2669 mAUROC=0.9267 
+  C-s123 Ep 15 | tL=0.1975 vL=0.2826 mAUROC=0.9264 
+  C-s123 Early stop at epoch 16
+
+=== Seed 7 ===
+  B-s7 Ep  1 | tL=0.3218 vL=0.2871 mAUROC=0.8949 *
+  B-s7 Ep  2 | tL=0.3073 vL=0.2784 mAUROC=0.9004 *
+  B-s7 Ep  3 | tL=0.2989 vL=0.2722 mAUROC=0.9066 *
+  B-s7 Ep  4 | tL=0.2930 vL=0.2671 mAUROC=0.9120 *
+  B-s7 Ep  5 | tL=0.2827 vL=0.2621 mAUROC=0.9169 *
+  B-s7 Ep  6 | tL=0.2836 vL=0.2568 mAUROC=0.9216 *
+  B-s7 Ep  7 | tL=0.2792 vL=0.2561 mAUROC=0.9235 *
+  B-s7 Ep  8 | tL=0.2872 vL=0.2516 mAUROC=0.9266 *
+  B-s7 Ep  9 | tL=0.2706 vL=0.2462 mAUROC=0.9304 *
+  B-s7 Ep 10 | tL=0.2769 vL=0.2445 mAUROC=0.9327 *
+  B-s7 Ep 11 | tL=0.2697 vL=0.2425 mAUROC=0.9344 *
+  B-s7 Ep 13 | tL=0.2676 vL=0.2404 mAUROC=0.9357 *
+  B-s7 Ep 14 | tL=0.2618 vL=0.2373 mAUROC=0.9379 *
+  B-s7 Ep 15 | tL=0.2523 vL=0.2406 mAUROC=0.9372 
+  B-s7 Ep 16 | tL=0.2551 vL=0.2365 mAUROC=0.9387 *
+  B-s7 Ep 17 | tL=0.2631 vL=0.2347 mAUROC=0.9392 *
+  B-s7 Ep 20 | tL=0.2486 vL=0.2385 mAUROC=0.9386 
+  B-s7 Ep 21 | tL=0.2503 vL=0.2335 mAUROC=0.9415 *
+  B-s7 Ep 22 | tL=0.2472 vL=0.2307 mAUROC=0.9416 *
+  B-s7 Ep 25 | tL=0.2433 vL=0.2324 mAUROC=0.9411 
+  B-s7 Ep 30 | tL=0.2477 vL=0.2319 mAUROC=0.9419 
+  B-s7 Early stop at epoch 30
+  C-s7 Ep  1 | tL=0.3137 vL=0.2795 mAUROC=0.9008 *
+  C-s7 Ep  2 | tL=0.2938 vL=0.2726 mAUROC=0.9061 *
+  C-s7 Ep  3 | tL=0.2775 vL=0.2680 mAUROC=0.9108 *
+  C-s7 Ep  4 | tL=0.2640 vL=0.2669 mAUROC=0.9141 *
+  C-s7 Ep  5 | tL=0.2498 vL=0.2673 mAUROC=0.9145 
+  C-s7 Ep  6 | tL=0.2471 vL=0.2628 mAUROC=0.9205 *
+  C-s7 Ep  7 | tL=0.2411 vL=0.2625 mAUROC=0.9229 *
+  C-s7 Ep 10 | tL=0.2204 vL=0.2815 mAUROC=0.9232 
+  C-s7 Ep 15 | tL=0.1999 vL=0.2762 mAUROC=0.9278 
+  C-s7 Early stop at epoch 15
+
+=== Seed 2024 ===
+  B-s2024 Ep  1 | tL=0.3202 vL=0.2866 mAUROC=0.8944 *
+  B-s2024 Ep  2 | tL=0.3037 vL=0.2785 mAUROC=0.9008 *
+  B-s2024 Ep  3 | tL=0.2951 vL=0.2717 mAUROC=0.9067 *
+  B-s2024 Ep  4 | tL=0.2969 vL=0.2660 mAUROC=0.9123 *
+  B-s2024 Ep  5 | tL=0.2859 vL=0.2618 mAUROC=0.9173 *
+  B-s2024 Ep  6 | tL=0.2829 vL=0.2596 mAUROC=0.9208 *
+  B-s2024 Ep  7 | tL=0.2791 vL=0.2559 mAUROC=0.9250 *
+  B-s2024 Ep  8 | tL=0.2796 vL=0.2515 mAUROC=0.9286 *
+  B-s2024 Ep  9 | tL=0.2742 vL=0.2473 mAUROC=0.9313 *
+  B-s2024 Ep 10 | tL=0.2706 vL=0.2468 mAUROC=0.9326 *
+  B-s2024 Ep 11 | tL=0.2706 vL=0.2432 mAUROC=0.9346 *
+  B-s2024 Ep 12 | tL=0.2604 vL=0.2410 mAUROC=0.9353 *
+  B-s2024 Ep 13 | tL=0.2657 vL=0.2389 mAUROC=0.9369 *
+  B-s2024 Ep 15 | tL=0.2584 vL=0.2349 mAUROC=0.9387 *
+  B-s2024 Ep 16 | tL=0.2592 vL=0.2347 mAUROC=0.9392 *
+  B-s2024 Ep 17 | tL=0.2579 vL=0.2325 mAUROC=0.9408 *
+  B-s2024 Ep 20 | tL=0.2533 vL=0.2302 mAUROC=0.9423 *
+  B-s2024 Ep 25 | tL=0.2433 vL=0.2341 mAUROC=0.9417 
+  B-s2024 Early stop at epoch 28
+  C-s2024 Ep  1 | tL=0.3117 vL=0.2802 mAUROC=0.9013 *
+  C-s2024 Ep  2 | tL=0.2905 vL=0.2694 mAUROC=0.9099 *
+  C-s2024 Ep  3 | tL=0.2757 vL=0.2685 mAUROC=0.9112 *
+  C-s2024 Ep  4 | tL=0.2624 vL=0.2658 mAUROC=0.9138 *
+  C-s2024 Ep  5 | tL=0.2531 vL=0.2682 mAUROC=0.9157 
+  C-s2024 Ep 10 | tL=0.2193 vL=0.2640 mAUROC=0.9263 *
+  C-s2024 Ep 15 | tL=0.2019 vL=0.2702 mAUROC=0.9282 
+  C-s2024 Early stop at epoch 18
+
+=== Seed 99 ===
+  B-s99 Ep  1 | tL=0.3198 vL=0.2870 mAUROC=0.8939 *
+  B-s99 Ep  2 | tL=0.3117 vL=0.2799 mAUROC=0.8998 *
+  B-s99 Ep  3 | tL=0.3006 vL=0.2735 mAUROC=0.9064 *
+  B-s99 Ep  4 | tL=0.2930 vL=0.2681 mAUROC=0.9109 *
+  B-s99 Ep  5 | tL=0.2865 vL=0.2618 mAUROC=0.9165 *
+  B-s99 Ep  6 | tL=0.2842 vL=0.2596 mAUROC=0.9195 *
+  B-s99 Ep  7 | tL=0.2775 vL=0.2553 mAUROC=0.9228 *
+  B-s99 Ep  8 | tL=0.2759 vL=0.2499 mAUROC=0.9274 *
+  B-s99 Ep  9 | tL=0.2704 vL=0.2479 mAUROC=0.9298 *
+  B-s99 Ep 10 | tL=0.2672 vL=0.2473 mAUROC=0.9314 *
+  B-s99 Ep 11 | tL=0.2751 vL=0.2431 mAUROC=0.9332 *
+  B-s99 Ep 14 | tL=0.2649 vL=0.2421 mAUROC=0.9350 *
+  B-s99 Ep 15 | tL=0.2642 vL=0.2381 mAUROC=0.9366 *
+  B-s99 Ep 17 | tL=0.2590 vL=0.2354 mAUROC=0.9396 *
+  B-s99 Ep 18 | tL=0.2532 vL=0.2339 mAUROC=0.9397 *
+  B-s99 Ep 19 | tL=0.2532 vL=0.2327 mAUROC=0.9405 *
+  B-s99 Ep 20 | tL=0.2475 vL=0.2326 mAUROC=0.9413 *
+  B-s99 Ep 22 | tL=0.2517 vL=0.2321 mAUROC=0.9411 *
+  B-s99 Ep 23 | tL=0.2487 vL=0.2309 mAUROC=0.9417 *
+  B-s99 Ep 25 | tL=0.2440 vL=0.2315 mAUROC=0.9426 
+  B-s99 Ep 30 | tL=0.2407 vL=0.2347 mAUROC=0.9416 
+  B-s99 Early stop at epoch 31
+  C-s99 Ep  1 | tL=0.3090 vL=0.2800 mAUROC=0.9006 *
+  C-s99 Ep  2 | tL=0.2890 vL=0.2716 mAUROC=0.9076 *
+  C-s99 Ep  5 | tL=0.2596 vL=0.2644 mAUROC=0.9154 *
+  C-s99 Ep 10 | tL=0.2165 vL=0.2763 mAUROC=0.9223 
+  C-s99 Early stop at epoch 13
+
+--- Multi-seed post-drift AUROC (mean ± std across 5 seeds) ---
+  B label_vasopressor      0.8945 ± 0.0004  (seeds: [0.8946, 0.8949, 0.8939, 0.8947, 0.8945])
+  C label_vasopressor      0.8763 ± 0.0052  (seeds: [0.8801, 0.8779, 0.8767, 0.8796, 0.8673])
+  B label_intubation       0.9402 ± 0.0003  (seeds: [0.9404, 0.9398, 0.9403, 0.9403, 0.9401])
+  C label_intubation       0.9435 ± 0.0007  (seeds: [0.9445, 0.9435, 0.9432, 0.9436, 0.9427])
+  B label_septic_shock     0.9601 ± 0.0006  (seeds: [0.9608, 0.9593, 0.9602, 0.9599, 0.9604])
+  C label_septic_shock     0.9533 ± 0.0021  (seeds: [0.9548, 0.9533, 0.953, 0.9554, 0.95])
+
+Median-seed selection:  B → seed 2024 | C → seed 123
+
+════════════════════════════════════════════════════════════
+ADAPTATION EXPLANATION — RunB
+════════════════════════════════════════════════════════════
+  Computing weight deltas...
+  Layer-stream weight changes:
+    physio     mean_rel_Δ=0.0000  max_rel_Δ=0.0000
+    treat      mean_rel_Δ=0.2118  max_rel_Δ=0.3229
+    fusion     mean_rel_Δ=0.3172  max_rel_Δ=0.4781
+  Computing treatment feature importance (permutation)...
+
+  Top treatment features driving adaptation (RunB):
+  Feature                             Importance    Drift   Combined
+  total_crystalloid_ml                    1.0000   0.7564   0.756383
+  early_antibiotic                        0.1789   0.1429   0.025553
+  time_to_first_abx_order_hrs             0.3885   0.0380   0.014772
+  has_insulin_infusion_obs                0.1109   0.0800   0.008874
+  gender_M                                0.1180   0.0373   0.004402
+  has_blood_products_obs                  0.0426   0.0798   0.003398
+  early_steroid                           0.0417   0.0650   0.002707
+  steroid_ordered                         0.0657   0.0052   0.000340
+  has_rrt_obs                             0.0031   0.0069   0.000021
+  n_distinct_meds                         0.2648   0.0000   0.000000
+
+════════════════════════════════════════════════════════════
+ADAPTATION EXPLANATION — RunC
+════════════════════════════════════════════════════════════
+  Computing weight deltas...
+  Layer-stream weight changes:
+    physio     mean_rel_Δ=0.1650  max_rel_Δ=0.5158
+    treat      mean_rel_Δ=0.1429  max_rel_Δ=0.2850
+    fusion     mean_rel_Δ=0.1975  max_rel_Δ=0.2838
+  Computing treatment feature importance (permutation)...
+
+  Top treatment features driving adaptation (RunC):
+  Feature                             Importance    Drift   Combined
+  total_crystalloid_ml                    1.0000   0.7564   0.756383
+  early_antibiotic                        0.1293   0.1429   0.018469
+  time_to_first_abx_order_hrs             0.2884   0.0380   0.010963
+  has_blood_products_obs                  0.0848   0.0798   0.006770
+  has_insulin_infusion_obs                0.0596   0.0800   0.004768
+  gender_M                                0.1016   0.0373   0.003791
+  early_steroid                           0.0268   0.0650   0.001742
+  steroid_ordered                         0.0480   0.0052   0.000249
+  n_distinct_meds                         0.2387   0.0000   0.000000
+  total_prbc_ml                           0.0875   0.0000   0.000000
+
+Mean per-label seed-std:  B=0.0004 | C=0.0026  (C noisier (overfit risk))
+
+============================================================
+PHASE 3: Run A vs Run B vs Run C
+============================================================
+
+--- Val (source weights, pre-adaptation — should be identical) ---
+--- Test-Pre (source weights, pre-adaptation — should be identical) ---
+--- Test-Post held-out (5749 stays) — A frozen | B partial adapt | C full adapt (median-seed) ---
+✅ DataLoader alignment verified (labels_a == labels_b == labels_c)
+
+--- Post-drift AUROC with 95% bootstrap CIs ---
+  Label                  A (95% CI)             B (95% CI)             C (95% CI)                  B−A      C−A
+  label_vasopressor      0.823 [0.805,0.841]  0.895 [0.879,0.910]  0.878 [0.862,0.893]  +0.0713 +0.0546
+  label_intubation       0.937 [0.930,0.943]  0.940 [0.934,0.947]  0.943 [0.937,0.950]  +0.0036 +0.0068
+  label_septic_shock     0.930 [0.904,0.953]  0.960 [0.934,0.978]  0.953 [0.925,0.975]  +0.0303 +0.0237
+
+--- Paired bootstrap: ΔAUROC (B − C) on held-out post-drift ---
+  label_vasopressor      ΔB−C = +0.0169  [+0.0106, +0.0235]  P(B>C)=1.00
+  label_intubation       ΔB−C = -0.0032  [-0.0052, -0.0013]  P(B>C)=0.00
+  label_septic_shock     ΔB−C = +0.0067  [+0.0001, +0.0142]  P(B>C)=0.98
+
+════════════════════════════════════════════════════════════
+METRIC GAIN EXPLANATION — Run A vs B vs C
+════════════════════════════════════════════════════════════
+
+  Post-drift AUROC gains vs frozen Run A:
+  label_vasopressor            B Δ=+0.0713 (large)  C Δ=+0.0546 (large)  → winner: B
+  label_intubation             B Δ=+0.0036 (negligible)  C Δ=+0.0068 (small)  → winner: C
+  label_septic_shock           B Δ=+0.0303 (large)  C Δ=+0.0237 (moderate)  → winner: B
+
+Val (source):
+  Label                      A_AUROC  B_AUROC     B-A  C_AUROC     C-A |  A_AUPRC  B_AUPRC     B-A  C_AUPRC     C-A | n_pos
+  ---------------------------------------------------------------------------------------------------------------------------
+  label_vasopressor           0.8486   0.8486 +0.0000   0.8486 +0.0000 |   0.5728   0.5728 +0.0000   0.5728 +0.0000 | 1546
+  label_intubation            0.9385   0.9385 +0.0000   0.9385 +0.0000 |   0.8554   0.8554 +0.0000   0.8554 +0.0000 | 2366
+  label_septic_shock          0.9384   0.9384 +0.0000   0.9384 +0.0000 |   0.2734   0.2734 +0.0000   0.2734 +0.0000 | 155
+
+Test-Pre  (≤ 2020 - 2022):
+  Label                      A_AUROC  B_AUROC     B-A  C_AUROC     C-A |  A_AUPRC  B_AUPRC     B-A  C_AUPRC     C-A | n_pos
+  ---------------------------------------------------------------------------------------------------------------------------
+  label_vasopressor           0.8617   0.8617 +0.0000   0.8617 +0.0000 |   0.6357   0.6357 +0.0000   0.6357 +0.0000 | 6067
+  label_intubation            0.9422   0.9422 +0.0000   0.9422 +0.0000 |   0.8676   0.8676 +0.0000   0.8676 +0.0000 | 8750
+  label_septic_shock          0.9341   0.9341 +0.0000   0.9341 +0.0000 |   0.3082   0.3082 +0.0000   0.3082 +0.0000 | 707
+
+Test-Post (> 2020 - 2022):
+  Label                      A_AUROC  B_AUROC     B-A  C_AUROC     C-A |  A_AUPRC  B_AUPRC     B-A  C_AUPRC     C-A | n_pos
+  ---------------------------------------------------------------------------------------------------------------------------
+  label_vasopressor           0.8233   0.8947 +0.0713   0.8779 +0.0546 |   0.4187   0.6182 +0.1995   0.5714 +0.1527 | 554
+  label_intubation            0.9367   0.9403 +0.0036   0.9435 +0.0068 |   0.8475   0.8558 +0.0083   0.8632 +0.0156 | 1657
+  label_septic_shock          0.9296   0.9599 +0.0303   0.9533 +0.0237 |   0.3100   0.4131 +0.1031   0.3775 +0.0675 | 76
+
+Generating plots...
+Saved → /kaggle/working/run_a_b_c_comparison.png
+Saved → /kaggle/working/drift_distributions.png
+
+======================================================================
+SAVING TWO-STREAM MODELS — Run A + Run B (Run C in temp file)
+======================================================================
+✅ Saved temp_run_c_weights.pt (median-seed Run C)
+✅ Saved two_stream_models.pt with Run A + median-seed Run B
+✅ Saved eval_split.json
+✅ Saved post_drift_predictions.npz
+
+============================================================
+SUMMARY
+============================================================
+Architecture: LSTM(86→64) + MLP(12→32) → Fusion → 3
+Source ensemble: 5 seeds → median seed=123  (mAUROC 0.9084 ± 0.0014)
+Drift: 5 features | Adapted: True
+  Val (source): A=0.9085 B=0.9085 (Δ=+0.0000) C=0.9085 (Δ=+0.0000)
+  Test-Pre  (≤ 2020 - 2022): A=0.9127 B=0.9127 (Δ=+0.0000) C=0.9127 (Δ=+0.0000)
+  Test-Post (> 2020 - 2022): A=0.8965 B=0.9316 (Δ=+0.0351) C=0.9249 (Δ=+0.0284)
+
+  Post-drift verdicts (paired bootstrap, 95% CI):
+    B significantly > C: 2/3
+    C significantly > B: 1/3
+    Statistical tie:     0/3
+      label_vasopressor      → B
+      label_intubation       → C
+      label_septic_shock     → B
+
+--- Sequential pairwise drift scores ---
+  [TRAIN] 2008 - 2010 → 2011 - 2013: score=0.0095  n_drifted=2  dist_ok=False  perf_ok=False  (n_sig=0)  baseline=val (held-out)  ✓
+  [TEST] 2011 - 2013 → 2014 - 2016: score=0.0147  n_drifted=2  dist_ok=False  perf_ok=False  (n_sig=0)  baseline=val (held-out)  ✓
+  [TEST] 2014 - 2016 → 2017 - 2019: score=0.0155  n_drifted=4  dist_ok=False  perf_ok=False  (n_sig=0)  baseline=val (held-out)  ✓
+  [TEST] 2017 - 2019 → 2020 - 2022: score=0.2324  n_drifted=5  dist_ok=True  perf_ok=False  (n_sig=0)  baseline=val (held-out)  ⚠ DRIFT
+
+✅ Complete
+183846
+shape: (2, 2)
+┌───────────────────┬───────┐
+│ anchor_year_group ┆ count │
+│ ---               ┆ ---   │
+│ str               ┆ u32   │
+╞═══════════════════╪═══════╡
+│ 2017 - 2019       ┆ 85908 │
+│ 2014 - 2016       ┆ 97938 │
+└───────────────────┴───────┘
+30641
+
+--- Paired bootstrap: ΔAUPRC (B − C) on held-out post-drift ---
+  label_vasopressor      ΔB−C = +0.0465  [+0.0308, +0.0623]  P(B>C)=1.00
+  label_intubation       ΔB−C = -0.0074  [-0.0151, -0.0001]  P(B>C)=0.02
+  label_septic_shock     ΔB−C = +0.0358  [-0.0167, +0.0850]  P(B>C)=0.92
+
+======================================================================
+COMPUTING IG ATTRIBUTION DATA FOR FIG_BIOLOGICAL_AMNESIA
+======================================================================
+  Selected patient stay_id=30109096 (index 61)
+✅ Saved fig_amnesia_ig_data.pkl → script5 bridge will merge XGBoost/SHAP side
+
+======================================================================
+FINAL MODEL UPDATE AUDIT LOG
+======================================================================
+🚨 CLINICAL PRACTICE SHIFT DETECTED
+Between the training period (2014-2016) and the new data (2020-2022), patient treatment patterns have changed significantly.
+To maintain accuracy safely, the model locked its physiological representation and exclusively updated its treatment and fusion layers. This restores accuracy by forcing the network to relearn the specific features that carry high predictive importance but suffered from severe real-world drift (most notably Total Crystalloid Ml and Early Antibiotic).
+
+Key clinical changes driving this update:
+• Total Crystalloid Ml: Average value decreased from 791.01 to 254.97 (Severe Drift PSI: 0.76)
+• Early Antibiotic: Usage increased by 14.3% in the newer data.
+• Insulin Infusion: Usage dropped by 8.0% in the newer data.
+• Blood Products: Usage dropped by 8.0% in the newer data.
+• Early Steroid: Usage increased by 6.5% in the newer data.
+
+✅ Full text audit saved: /kaggle/working/clinical_drift_audit.txt

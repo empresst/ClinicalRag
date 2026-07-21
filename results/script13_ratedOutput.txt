@@ -1,0 +1,44 @@
+✅ Found pubmed_rag_rater_output.csv — computing clinician metrics...
+
+  Clinician-rated retrieval quality (TP cases, physio stream, P@5 / nDCG@5):
+
+  Model             P@5     nDCG@5
+  ──────────────────────────────────
+  Source          0.800      0.875
+  Run B           0.800      0.857
+  XGBoost         0.467      0.893
+
+  Note: single rater. For publication, a second rater + Cohen's kappa
+  is recommended. Add a 'relevant_0_1_rater2' column to the output CSV
+  and compute kappa across the two columns.
+
+✅ Clinician metrics written to pubmed_rag_summary.json
+
+======================================================================
+FINAL SUMMARY
+======================================================================
+Corpus: 522 abstracts | 2009/01/01 – 2019/12/31
+Cases:  300 (post-drift, 100/label)
+
+Query strategy: automatic from IG/SHAP feature names
+  No vocabulary tables | No MeSH curation | No relevance labels
+  Physio sub-query: top-5 SEQ_FEATURES by |IG|
+  Treat  sub-query: top-4 TREATMENT_FEATURES by |SHAP/IG|
+
+RETRIEVAL STABILITY (Jaccard vs source model):
+  Stream                  Run B   XGBoost   Δ (B−XGB)
+  ──────────────────────────────────────────────────
+  Physiology              0.573      0.330      +0.243
+  Treatment               0.540      0.448      +0.092
+  Merged                  0.438      0.323      +0.116
+
+MECHANISTIC LINK (attribution delta → retrieval divergence):
+  Run B   Spearman r=-0.197  p=0.0006
+  XGBoost Spearman r=-0.169  p=0.0033
+
+ATTRIBUTION MASS SHIFT (physiology stream, |adapted − source|):
+  Run B:    0.0380
+  XGBoost:  0.0320
+  Ratio:    0.8×  (>1 = XGBoost physio more unstable)
+  Note: raw delta ratio. Normalized ratio (÷ source p95) reported
+  in fig_biological_amnesia for cross-section consistency.

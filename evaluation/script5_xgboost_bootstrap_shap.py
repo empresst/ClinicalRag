@@ -1,5 +1,6 @@
+%%writefile evaluation/script5_xgboost_bootstrap_shap.py
 """
-script4_enhancements.py
+script5_xgboost_bootstrap_shap.py
 ═══════════════════════
 Three additions for journal-grade submission:
 
@@ -22,212 +23,86 @@ Dependencies:
   pip install xgboost sentence-transformers
 """
 
-import json, warnings, copy
+import json
+import warnings
 from pathlib import Path
-from collections import defaultdict
 import numpy as np
 import polars as pl
 import torch
-import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from sklearn.metrics import roc_auc_score, average_precision_score, brier_score_loss
-import matplotlib.pyplot as plt
+from utils.constants import SEQ_FEATURES, TREATMENT_FEATURES, BINARY_COLS, LABEL_COLS
+from utils.data_utils import load_enriched_split, calculate_train_stats, normalize, SingleStreamDataset, ICUDataset
+from utils.train_utils import FocalBCEWithLogitsLoss, compute_pos_weights
+from models.architectures import PhysiologyStream, TreatmentStream, FusionHead, SingleStreamModel, TwoStreamModel, SEED, SEQ_LEN, HIDDEN_DIM, TREAT_DIM, BATCH_SIZE
+from torch.utils.data import DataLoader
 
 warnings.filterwarnings("ignore")
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device: {device}")
 
-# ── CONFIG ─────────────────────────────────────────────────────────────────────
-SEED, SEQ_LEN, HIDDEN_DIM, TREAT_DIM = 42, 6, 64, 32
-LSTM_LAYERS, BATCH_SIZE, DROPOUT = 2, 64, 0.3
-LABEL_COLS = ["label_vasopressor", "label_intubation", "label_septic_shock"]
-BASE_PATH  = Path("/kaggle/input/datasets/fatematamanna/allnew")
-SAVE_PATH  = Path("/kaggle/working")
+torch.manual_seed(SEED)
+np.random.seed(SEED)
+
+BASE_PATH = Path("/kaggle/input/datasets/fatematamanna/allnew")
+SAVE_PATH = Path("/kaggle/working")
 N_BOOTSTRAP = 1000
 BOOTSTRAP_SEED = 42
-TOP_K_DOCS = 5
-N_CASES_PER_CONDITION = 5
 
-torch.manual_seed(SEED); np.random.seed(SEED)
+# ── LOAD EVAL SPLIT (must happen before any reference to split/eval_post_stays) ──
+with open(SAVE_PATH / "eval_split.json") as f:
+    split = json.load(f)
 
-# ── FEATURE DEFINITIONS (same as script2/3) ───────────────────────────────────
-SEQ_FEATURES = [
-    "heart_rate","sbp_noninvasive","dbp_noninvasive","sbp_invasive","dbp_invasive",
-    "map_invasive","temperature_c","spo2","resp_rate",
-    "creatinine","wbc","platelets","lactate","bun","bilirubin_total","glucose",
-    "hematocrit","potassium","sodium","troponin_t","ph_venous","pco2_venous",
-    "base_excess","rbc","chloride","calcium",
-    "urine_output","urine_output_ml_kg_hr","weight",
-    "heart_rate_time_delta","map_invasive_time_delta","lactate_time_delta",
-    "creatinine_baseline","creatinine_delta","creatinine_ratio",
-    "lactate_baseline","lactate_delta","lactate_ratio",
-    "bun_baseline","bun_delta","bun_ratio",
-    "glucose_baseline","glucose_delta","glucose_ratio",
-    "bilirubin_total_baseline","bilirubin_total_delta","bilirubin_total_ratio",
-    "resp_rate_rollmean_3","resp_rate_rollstd_3","spo2_rollmean_6","spo2_rollstd_4",
-    "heart_rate_mask","sbp_noninvasive_mask","dbp_noninvasive_mask",
-    "sbp_invasive_mask","dbp_invasive_mask","map_invasive_mask",
-    "temperature_c_mask","spo2_mask","resp_rate_mask",
-    "creatinine_mask","wbc_mask","platelets_mask","lactate_mask","bun_mask",
-    "bilirubin_total_mask","glucose_mask","hematocrit_mask","potassium_mask",
-    "sodium_mask","troponin_t_mask","ph_venous_mask","pco2_venous_mask",
-    "base_excess_mask","rbc_mask","chloride_mask","calcium_mask",
-    "urine_output_mask","urine_output_ml_kg_hr_mask","weight_mask",
-]
 
-TREATMENT_FEATURES = [
-    "total_crystalloid_ml", "has_norepinephrine_obs", "has_phenylephrine_obs",
-    "has_dopamine_obs", "has_vasopressin_obs", "time_to_first_vaso_hrs",
-    "early_steroid", "early_antibiotic", "n_distinct_meds",
-    "steroid_ordered", "time_to_first_abx_order_hrs",
-    "max_fio2_obs", "mean_fio2_obs", "max_peep_obs", "max_tidal_volume_obs",
-    "high_fio2_flag", "on_peep_flag",
-    "has_propofol_midaz_obs", "total_sedation_dose_obs",
-    "age","gender_M","eth_WHITE","eth_BLACK","eth_HISPANIC","eth_ASIAN",
-]
+eval_post_stays      = list(map(int, split["eval_post_stays"]))
+adapt_train_stays    = list(map(int, split["adapt_train_stays"]))
+adapt_val_stays      = list(map(int, split["adapt_val_stays"]))
+pre_cp_stays         = list(map(int, split["pre_cp_stays"]))
+post_cp_stays        = list(map(int, split["post_cp_stays"]))
+buf_pre_stays        = list(map(int, split["buf_pre_stays"]))
+eval_post_subjects   = list(map(int, split["eval_post_subjects"]))
+eval_post_subj_set   = set(eval_post_subjects)
+drift_tag            = split.get("drift_tag", None)
+BUFFER_SIZE          = 500
 
-BINARY_COLS = {c for c in TREATMENT_FEATURES
-               if c.startswith("has_") or c.startswith("eth_") or c == "gender_M"
-               or c in ("early_steroid","early_antibiotic","steroid_ordered",
-                        "high_fio2_flag","on_peep_flag")}
-
-# ══════════════════════════════════════════════════════════════════════════════
-# MODEL ARCHITECTURE (must match script2)
-# ══════════════════════════════════════════════════════════════════════════════
-class PhysiologyStream(nn.Module):
-    def __init__(self, input_dim, hidden_dim=64, n_layers=2, dropout=0.3):
-        super().__init__()
-        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=n_layers,
-                            batch_first=True, dropout=dropout if n_layers > 1 else 0)
-        self.norm = nn.LayerNorm(hidden_dim)
-    def forward(self, x):
-        _, (h, _) = self.lstm(x)
-        return self.norm(h[-1])
-
-class TreatmentStream(nn.Module):
-    def __init__(self, input_dim, output_dim=32, dropout=0.3):
-        super().__init__()
-        self.mlp = nn.Sequential(
-            nn.Linear(input_dim, 64), nn.ReLU(), nn.Dropout(dropout),
-            nn.Linear(64, output_dim), nn.ReLU(), nn.LayerNorm(output_dim))
-    def forward(self, x): return self.mlp(x)
-
-class FusionHead(nn.Module):
-    def __init__(self, physio_dim=64, treat_dim=32, n_targets=4, dropout=0.4):
-        super().__init__()
-        self.head = nn.Sequential(
-            nn.Linear(physio_dim + treat_dim, 64), nn.ReLU(), nn.Dropout(dropout),
-            nn.Linear(64, 32), nn.ReLU(), nn.Dropout(dropout * 0.75),
-            nn.Linear(32, n_targets))
-    def forward(self, p, t): return self.head(torch.cat([p, t], dim=1))
-
-class TwoStreamModel(nn.Module):
-    def __init__(self, seq_input_dim, treat_input_dim, n_targets=4):
-        super().__init__()
-        self.physio = PhysiologyStream(seq_input_dim, HIDDEN_DIM, LSTM_LAYERS, DROPOUT)
-        self.treat  = TreatmentStream(treat_input_dim, TREAT_DIM, DROPOUT)
-        self.fusion = FusionHead(HIDDEN_DIM, TREAT_DIM, n_targets, DROPOUT)
-
-    def forward(self, x_seq, x_treat):
-        return self.fusion(self.physio(x_seq), self.treat(x_treat))
-
-    def freeze_physio(self):
-        for p in self.physio.parameters(): p.requires_grad = False
-
-    def freeze_all(self):
-        for p in self.parameters(): p.requires_grad = False
-
-    def unfreeze_all(self):
-        """Unfreeze every parameter — used by Run C."""
-        for p in self.parameters(): p.requires_grad = True
-
-    def unfreeze_adaptive(self):
-        """Freeze physio, unfreeze treat+fusion — used by Run B."""
-        self.freeze_all()
-        for p in self.treat.parameters():  p.requires_grad = True
-        for p in self.fusion.parameters(): p.requires_grad = True
-
-# ── DATA LOADING ───────────────────────────────────────────────────────────────
-def load_split(name):
-    df = pl.read_parquet(BASE_PATH / f"{name}_final_enriched.parquet")
-    if "gender" in df.columns:
-        df = df.with_columns((pl.col("gender") == "M").cast(pl.Float32).alias("gender_M"))
-    for eth in ["WHITE","BLACK","HISPANIC","ASIAN"]:
-        if "ethnicity" in df.columns:
-            df = df.with_columns((pl.col("ethnicity") == eth).cast(pl.Float32).alias(f"eth_{eth}"))
-    for c in SEQ_FEATURES + TREATMENT_FEATURES:
-        if c not in df.columns:
-            df = df.with_columns(pl.lit(0.0).cast(pl.Float32).alias(c))
-    return df
-
-print("Loading saved models...")
+# ── MODEL LOADING ─────────────────────────────────────────────────────────────
+print("\nLoading saved models...")
 ckpt = torch.load(SAVE_PATH / "two_stream_models.pt", map_location=device, weights_only=False)
 seq_dim, treat_dim, n_targets = ckpt["seq_dim"], ckpt["treat_dim"], ckpt["n_targets"]
-train_stats = ckpt["train_stats"]
 
-model_A = TwoStreamModel(seq_dim, treat_dim, n_targets).to(device)
-model_A.load_state_dict(ckpt["run_a"]); model_A.eval()
-model_B = TwoStreamModel(seq_dim, treat_dim, n_targets).to(device)
-model_B.load_state_dict(ckpt["run_b"]); model_B.eval()
+model_A      = TwoStreamModel(seq_dim, treat_dim, n_targets).to(device)
+model_B      = TwoStreamModel(seq_dim, treat_dim, n_targets).to(device)
+source_model = TwoStreamModel(seq_dim, treat_dim, n_targets).to(device)
+
+model_A.load_state_dict(ckpt["run_a"])
+model_B.load_state_dict(ckpt["run_b"])
+source_model.load_state_dict(ckpt["source"])
+
+model_A.eval(); model_B.eval(); source_model.eval()   # all three here, once
 print(f"Models loaded: seq={seq_dim}, treat={treat_dim}, targets={n_targets}")
 
-def normalize(df, stats):
-    exprs = []
-    for c, (mu, sd) in stats.items():
-        if c in df.columns:
-            if c.endswith("_mask") or c in BINARY_COLS:
-                exprs.append(pl.col(c).cast(pl.Float32))
-            else:
-                exprs.append(((pl.col(c).cast(pl.Float64) - mu) / sd).cast(pl.Float32).alias(c))
-    return df.with_columns(exprs)
-
+# ── DATA LOADING ──────────────────────────────────────────────────────────────
 print("Loading data...")
-train_df = normalize(load_split("train"), train_stats)
-val_df   = normalize(load_split("val"),   train_stats)
-test_df  = normalize(load_split("test"),  train_stats)
+train_df = load_enriched_split(BASE_PATH, "train", SEQ_FEATURES, TREATMENT_FEATURES)
+val_df   = load_enriched_split(BASE_PATH, "val",   SEQ_FEATURES, TREATMENT_FEATURES)
+test_df  = load_enriched_split(BASE_PATH, "test",  SEQ_FEATURES, TREATMENT_FEATURES)
 
-class ICUDataset(Dataset):
-    def __init__(self, df, seq_features, treat_features, label_cols, seq_len=6):
-        self.seq_len, self.label_cols = seq_len, label_cols
-        self.seq_cols   = [c for c in seq_features  if c in df.columns]
-        self.treat_cols = [c for c in treat_features if c in df.columns]
-        stays = df.sort(["stay_id","hrs_from_admit"])
-        self.stay_ids = stays.select("stay_id").unique().sort("stay_id")["stay_id"].to_list()
-        self.seq_data, self.treat_data, self.labels = [], [], []
-        for sid in self.stay_ids:
-            s = stays.filter(pl.col("stay_id") == sid)
-            seq = s.select(self.seq_cols).to_numpy().astype(np.float32)
-            if seq.shape[0] < seq_len:
-                seq = np.vstack([seq, np.zeros((seq_len - seq.shape[0], seq.shape[1]), dtype=np.float32)])
-            else:
-                seq = seq[:seq_len]
-            self.seq_data.append(seq)
-            self.treat_data.append(np.array(s.select(self.treat_cols).row(0), dtype=np.float32))
-            self.labels.append(np.array(s.select(label_cols).row(0), dtype=np.float32))
-        self.seq_data   = np.stack(self.seq_data)
-        self.treat_data = np.stack(self.treat_data)
-        self.labels     = np.stack(self.labels)
-    def __len__(self): return len(self.stay_ids)
-    def __getitem__(self, idx):
-        return (torch.from_numpy(self.seq_data[idx]),
-                torch.from_numpy(self.treat_data[idx]),
-                torch.from_numpy(self.labels[idx]))
+train_stats = ckpt["train_stats"]
 
-# Separate pre/post drift test sets
-test_pre  = test_df.filter(pl.col("anchor_year_group") == "2017 - 2019")
-test_post = test_df.filter(pl.col("anchor_year_group") == "2020 - 2022")
+print("Normalizing...")
+train_df = normalize(train_df, train_stats)
+val_df   = normalize(val_df,   train_stats)
+test_df  = normalize(test_df,  train_stats)
 
-# Reproduce the held-out split from script2
-post_stays = test_post.filter(pl.col("hrs_from_admit") == 0).sort("intime")["stay_id"].to_list()
-n_total_post = len(post_stays)
-n_adapt_train = int(n_total_post * 0.30)
-n_adapt_val   = int(n_total_post * 0.10)
-eval_post_stays = post_stays[n_adapt_train + n_adapt_val:]
+
+# ── SPLIT RECONSTRUCTION ──────────────────────────────────────────────────────
+
+test_pre     = test_df.filter(pl.col("stay_id").is_in(pre_cp_stays))
+test_post    = test_df.filter(pl.col("stay_id").is_in(post_cp_stays))
 eval_post_df = test_post.filter(pl.col("stay_id").is_in(eval_post_stays))
 
-print(f"Test-Pre: {test_pre['stay_id'].n_unique()} stays")
-print(f"Test-Post held-out: {len(eval_post_stays)} stays")
-
+print(f"Models loaded: seq={seq_dim}, treat={treat_dim}, targets={n_targets}")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ADDITION 1: BOOTSTRAP CONFIDENCE INTERVALS
@@ -251,6 +126,10 @@ def get_predictions(model, df):
     labels = torch.cat(all_labels).numpy()
     probs = 1 / (1 + np.exp(-logits))
     return probs, labels
+
+
+print(f"Test-Pre: {test_pre['stay_id'].n_unique()} stays")
+print(f"Test-Post held-out: {len(eval_post_stays)} stays")
 
 def bootstrap_auroc_delta(probs_a, probs_b, labels, n_boot=N_BOOTSTRAP, seed=BOOTSTRAP_SEED):
     """
@@ -400,8 +279,7 @@ def bootstrap_auprc_delta(probs_a, probs_b, labels, n_boot=N_BOOTSTRAP, seed=BOO
 print("\nGetting predictions...")
 
 # Pre-drift (Run A == Run B, use source weights for both)
-source_model = TwoStreamModel(seq_dim, treat_dim, n_targets).to(device)
-source_model.load_state_dict(ckpt["source"]); source_model.eval()
+
 
 probs_a_pre, labels_pre = get_predictions(model_A, test_pre)
 probs_b_pre, _          = get_predictions(source_model, test_pre)  # source == model_A pre-drift
@@ -540,7 +418,7 @@ for arr in [X_train, X_val, X_pre, X_post]:
 
 # Train one XGBoost per label
 xgb_models = {}
-xgb_adapted_models = {} #look
+xgb_adapted_models = {} 
 xgb_results = {"val": {}, "test_pre": {}, "test_post": {}}
 
 for i, lbl in enumerate(LABEL_COLS):
@@ -587,18 +465,15 @@ for i, lbl in enumerate(LABEL_COLS):
 
 # XGBoost with post-drift adaptation (retrain on same adapt data)
 print("\n  Training XGBoost-Adapted (retrained on post-drift adapt data)...")
-adapt_train_stays = post_stays[:n_adapt_train]
-adapt_train_df_xgb = test_post.filter(pl.col("stay_id").is_in(adapt_train_stays))
 
-# Include pre-drift buffer
-pre_stays = test_pre.select("stay_id").unique().sort("stay_id")["stay_id"].to_list()
-buf_pre_stays = pre_stays[-500:] if len(pre_stays) > 500 else pre_stays
-buf_pre_df = test_pre.filter(pl.col("stay_id").is_in(buf_pre_stays))
-combined_adapt_df = pl.concat([buf_pre_df, adapt_train_df_xgb])
+# REPLACE WITH — use script2's already-computed buffer
+adapt_train_df_xgb = test_post.filter(pl.col("stay_id").is_in(adapt_train_stays))
+buf_pre_df         = test_pre.filter(pl.col("stay_id").is_in(buf_pre_stays))
+combined_adapt_df  = pl.concat([buf_pre_df, adapt_train_df_xgb])
 
 X_adapt, Y_adapt, _, _ = flatten_for_xgb(combined_adapt_df, SEQ_FEATURES, TREATMENT_FEATURES, LABEL_COLS)
 X_adapt_val_arr, Y_adapt_val_arr, _, _ = flatten_for_xgb(
-    test_post.filter(pl.col("stay_id").is_in(post_stays[n_adapt_train:n_adapt_train + n_adapt_val])),
+    test_post.filter(pl.col("stay_id").is_in(adapt_val_stays)),
     SEQ_FEATURES, TREATMENT_FEATURES, LABEL_COLS)
 X_adapt[~np.isfinite(X_adapt)] = 0.0
 X_adapt_val_arr[~np.isfinite(X_adapt_val_arr)] = 0.0
@@ -617,7 +492,7 @@ for i, lbl in enumerate(LABEL_COLS):
         random_state=SEED, use_label_encoder=False, verbosity=0,
     )
     model_xgb_ad.fit(X_adapt, y_tr, eval_set=[(X_adapt_val_arr, y_va)], verbose=False)
-    xgb_adapted_models[lbl] = model_xgb_ad  #look
+    xgb_adapted_models[lbl] = model_xgb_ad  
     y_true = Y_post[:, i]
     y_prob = model_xgb_ad.predict_proba(X_post)[:, 1]
     if y_true.sum() > 0 and y_true.sum() < len(y_true):
@@ -649,17 +524,18 @@ ts_a_pre  = get_two_stream_metrics(probs_a_pre, labels_pre)
 ts_a_post = get_two_stream_metrics(probs_a_post, labels_post)
 ts_b_post = get_two_stream_metrics(probs_b_post, labels_post)
 
+
 # Print table
 for split_name, models in [
-    ("Val (2014-16)", [
+    (f"Val (source era)", [
         ("XGBoost", xgb_results["val"]),
         ("Two-Stream (Run A)", ts_a_val),
     ]),
-    ("Test-Pre (2017-19)", [
+    (f"Test-Pre (pre {drift_tag})", [
         ("XGBoost", xgb_results["test_pre"]),
         ("Two-Stream (Run A)", ts_a_pre),
     ]),
-    ("Test-Post (2020-22)", [
+    (f"Test-Post ({drift_tag}+)", [
         ("XGBoost (source)", xgb_results["test_post"]),
         ("XGBoost (adapted)", xgb_adapted_results["test_post"]),
         ("Two-Stream Run A (static)", ts_a_post),
@@ -689,3 +565,200 @@ comparison = {
 with open(SAVE_PATH / "full_comparison_results.json", "w") as f:
     json.dump(comparison, f, indent=2)
 print(f"\nSaved → {SAVE_PATH / 'full_comparison_results.json'}")
+
+
+# Get PyTorch ordering — this is the reference ordering
+
+eval_ds = ICUDataset(eval_post_df, SEQ_FEATURES, TREATMENT_FEATURES, LABEL_COLS, SEQ_LEN)
+pytorch_stay_order = eval_ds.stay_ids  # sorted by stay_id ascending
+print(f"PyTorch ordering: {len(pytorch_stay_order)} stays")
+print(f"First 5: {pytorch_stay_order[:5]}")
+
+# Flatten features IN THE SAME ORDER as PyTorch
+# Sort eval_post_df by stay_id to match PyTorch ICUDataset ordering
+eval_post_sorted = eval_post_df.filter(
+    pl.col("hrs_from_admit") == 0
+).sort("stay_id")
+
+# Verify order matches PyTorch
+sorted_sids = eval_post_sorted["stay_id"].to_list()
+assert sorted_sids == pytorch_stay_order, "Ordering still mismatched"
+print("✅ Ordering matches PyTorch")
+
+# Now flatten for XGBoost IN THIS ORDER
+X_eval, Y_eval, sids_eval, feat_names = flatten_for_xgb(
+    eval_post_df, SEQ_FEATURES, TREATMENT_FEATURES, LABEL_COLS
+)
+
+# Verify sids_eval matches pytorch_stay_order
+print(f"XGBoost flatten ordering first 5: {sids_eval[:5]}")
+assert sids_eval == pytorch_stay_order, \
+    f"Mismatch at: {next(i for i,(a,b) in enumerate(zip(sids_eval, pytorch_stay_order)) if a!=b)}"
+print("✅ XGBoost flatten order verified against PyTorch")
+
+X_eval[~np.isfinite(X_eval)] = 0.0
+
+# Generate predictions using saved XGBoost models
+probs_source_new  = np.zeros((len(pytorch_stay_order), 3))
+probs_adapted_new = np.zeros((len(pytorch_stay_order), 3))
+
+for i, lbl in enumerate(LABEL_COLS):
+    probs_source_new[:, i]  = xgb_models[lbl].predict_proba(X_eval)[:, 1]
+    probs_adapted_new[:, i] = xgb_adapted_models[lbl].predict_proba(X_eval)[:, 1]
+
+# Verify AUROC matches Table 4
+from sklearn.metrics import roc_auc_score
+print("\nAUROC verification (should match Table 4):")
+for i, lbl in enumerate(LABEL_COLS):
+    y = Y_eval[:, i]
+    if 0 < y.sum() < len(y):
+        auroc_src = roc_auc_score(y, probs_source_new[:, i])
+        auroc_adp = roc_auc_score(y, probs_adapted_new[:, i])
+        print(f"  {lbl}: source={auroc_src:.4f} adapted={auroc_adp:.4f}")
+
+# Save corrected predictions
+np.savez(
+    SAVE_PATH / "xgb_predictions_corrected.npz",
+    probs_xgb_source  = probs_source_new,
+    probs_xgb_adapted = probs_adapted_new,
+    stay_ids          = np.array(pytorch_stay_order),
+    labels            = Y_eval,
+)
+print("\n✅ Saved xgb_predictions_corrected.npz")
+
+import joblib
+for lbl in LABEL_COLS:
+    joblib.dump(xgb_models[lbl],
+                SAVE_PATH / f"xgb_source_{lbl}.pkl")
+    joblib.dump(xgb_adapted_models[lbl],
+                SAVE_PATH / f"xgb_adapted_{lbl}.pkl")
+print("✅ XGBoost models saved for script9")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# BRIDGE: Per-patient SHAP for fig_biological_amnesia
+# ══════════════════════════════════════════════════════════════════════════════
+print("\n" + "="*70)
+print("BRIDGE: Computing per-patient SHAP for fig_biological_amnesia")
+print("="*70)
+
+import shap, pickle
+
+# ── Load the IG side that script2 exported ────────────────────────────────────
+ig_path = SAVE_PATH / "fig_amnesia_ig_data.pkl"
+if not ig_path.exists():
+    print(f"⚠ {ig_path} not found — run script2 first. Skipping bridge.")
+else:
+    with open(ig_path, "rb") as f:
+        ig_data = pickle.load(f)
+
+    # The fig file needs one consistent patient across IG and SHAP panels.
+    # Script2 picked a patient by stay_id; find that row in the XGBoost ordering.
+    fig_stay_id = ig_data["stay_id"]
+
+    npz = np.load(SAVE_PATH / "xgb_predictions_corrected.npz", allow_pickle=True)
+    stay_ids_arr = npz["stay_ids"].tolist()
+
+    if fig_stay_id not in stay_ids_arr:
+        print(f"⚠ stay_id {fig_stay_id} not in XGBoost eval set — "
+              f"picking closest available patient")
+        # Fall back to highest-probability positive from script2's label_idx
+        LABEL_IDX = ig_data["label_idx"]
+        labels_npz = npz["labels"]
+        probs_npz  = npz["probs_xgb_source"]
+        pos_mask   = labels_npz[:, LABEL_IDX] == 1
+        if pos_mask.sum() == 0:
+            xi_best = 0
+        else:
+            xi_best = int(np.where(pos_mask)[0][
+                np.argmax(probs_npz[pos_mask, LABEL_IDX])])
+        fig_stay_id = stay_ids_arr[xi_best]
+        print(f"  Fell back to stay_id={fig_stay_id} (index {xi_best})")
+    else:
+        xi_best = stay_ids_arr.index(fig_stay_id)
+        print(f"  Matched stay_id={fig_stay_id} at XGBoost index {xi_best}")
+
+    # ── Build the feature row for this patient ────────────────────────────
+    # Need to re-flatten just this patient in the same feature space script5 used
+    LABEL_IDX  = ig_data["label_idx"]
+    patient_df = eval_post_df.filter(pl.col("stay_id") == fig_stay_id)
+    X_patient, Y_patient, _, _ = flatten_for_xgb(
+        patient_df, SEQ_FEATURES, TREATMENT_FEATURES, LABEL_COLS)
+    X_patient[~np.isfinite(X_patient)] = 0.0
+
+    # ── SHAP values from source and adapted XGBoost ───────────────────────
+    # Use the vasopressor model (LABEL_IDX=0) — same as IG panels
+    src_xgb_model = xgb_models[LABEL_COLS[LABEL_IDX]]
+    adp_xgb_model = xgb_adapted_models[LABEL_COLS[LABEL_IDX]]
+
+    explainer_xgb_src = shap.TreeExplainer(src_xgb_model)
+    explainer_xgb_adp = shap.TreeExplainer(adp_xgb_model)
+
+    # shap_values shape: (1, n_features)
+    shap_src_patient = explainer_xgb_src.shap_values(X_patient)
+    shap_adp_patient = explainer_xgb_adp.shap_values(X_patient)
+
+    # ── XGBoost predicted probabilities for this patient ─────────────────
+    p_xgb_src = float(src_xgb_model.predict_proba(X_patient)[0, 1])
+    p_xgb_adp = float(adp_xgb_model.predict_proba(X_patient)[0, 1])
+    print(f"  p_xgb_src={p_xgb_src:.3f}  p_xgb_adp={p_xgb_adp:.3f}")
+
+    # ── Build xgb_feat_names (same as flatten_for_xgb produces) ──────────
+    # Already computed above as `xgb_feat_names` from the flatten call
+    # Verify length matches
+    assert len(xgb_feat_names) == shap_src_patient.shape[1], \
+        f"Feature name count mismatch: {len(xgb_feat_names)} vs {shap_src_patient.shape[1]}"
+
+    # ── all_xgb_deltas ────────────────────────────────────────────────────
+    xgb_p95 = float(np.percentile(np.abs(shap_src_patient[0]), 95))
+    xgb_p95 = max(xgb_p95, 1e-6)
+
+    all_xgb_deltas = {}
+    for i, n in enumerate(xgb_feat_names):
+        src_v = float(shap_src_patient[0][i])
+        adp_v = float(shap_adp_patient[0][i])
+        d     = abs(adp_v - src_v) / xgb_p95
+        all_xgb_deltas[n] = {"src": src_v, "adp": adp_v, "delta": d}
+
+    # ── XGBoost normalization arrays for bottom panel ─────────────────────
+    treat_col_set = set(ig_data["treat_cols"])
+    seq_col_set   = set(ig_data["seq_cols"])
+
+    phys_deltas_xgb, treat_deltas_xgb = [], []
+    for n, v in all_xgb_deltas.items():
+        # strip prefix from flatten: "last_X", "mean_X" etc.
+        base = "_".join(n.split("_")[1:]) if "_" in n else n
+        if base in treat_col_set or n in treat_col_set:
+            treat_deltas_xgb.append(v["delta"])
+        else:
+            phys_deltas_xgb.append(v["delta"])
+
+    xgb_phys_norm  = np.array(phys_deltas_xgb)  if phys_deltas_xgb  else np.array([0.0])
+    xgb_treat_norm = np.array(treat_deltas_xgb) if treat_deltas_xgb else np.array([0.0])
+
+    # amnesia feature: largest SHAP delta
+    amnesia_feat = max(all_xgb_deltas, key=lambda n: all_xgb_deltas[n]["delta"])
+    delta        = all_xgb_deltas[amnesia_feat]["delta"]
+    print(f"  Amnesia feature: {amnesia_feat}  Δ={delta:.4f}")
+
+    # ── Merge with IG data and save the complete fig pkl ──────────────────
+    fig_data = {
+        **ig_data,                        # all IG variables from script2
+        "all_xgb_deltas":   all_xgb_deltas,
+        "shap_src_all":     shap_src_patient,
+        "xgb_feat_names":   xgb_feat_names,
+        "xi_best":          0,             # always 0: single-patient array
+        "p_xgb_src":        p_xgb_src,
+        "p_xgb_adp":        p_xgb_adp,
+        "xgb_phys_norm":    xgb_phys_norm,
+        "xgb_treat_norm":   xgb_treat_norm,
+        "xgb_p95":          xgb_p95,
+        "amnesia_feat":     amnesia_feat,
+        "delta":            delta,
+        # override stay_id/true_label with the verified matched patient
+        "stay_id":          int(fig_stay_id),
+        "true_label":       int(Y_patient[0, LABEL_IDX]),
+    }
+
+    with open(SAVE_PATH / "fig_amnesia_data.pkl", "wb") as f:
+        pickle.dump(fig_data, f)
+    print(f"✅ Saved fig_amnesia_data.pkl — ready for fig_biological_amnesia_v3_patch.py")

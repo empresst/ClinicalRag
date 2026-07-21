@@ -1,3 +1,4 @@
+%%writefile preprocessing/script1_preprocessing.py
 """
 script1_preprocessing_v8.py
 ═══════════════════════════
@@ -40,13 +41,14 @@ for tbl, path in [
     ("d_items",         "icu/d_items.csv"),
     ("emar",            "hosp/emar.csv"),
     ("prescriptions",   "hosp/prescriptions.csv"),
+    ("diagnoses_icd",   "hosp/diagnoses_icd.csv"),
 ]:
     con.execute(f"CREATE OR REPLACE VIEW {tbl} AS SELECT * FROM '{data_path}/{path}'")
 print("All views registered")
 
 OBS_HOURS, GAP_HOURS, PRED_START_H, PRED_END_H = 6, 2, 8, 14
 MIN_STAY_HOURS, SEQ_LEN = 14, 6
-TRAIN_YEARS = ["2014 - 2016"]
+TRAIN_YEARS = ["2008 - 2010", "2011 - 2013"]
 print(f"observe h0-{OBS_HOURS-1} | gap h{OBS_HOURS}-{PRED_START_H-1} | predict h{PRED_START_H}-{PRED_END_H}")
 print("Label framing: ONGOING NEED (no patient exclusions)")
 
@@ -106,8 +108,12 @@ print(f"Labs → {labs_df.shape}")
 vitals_df = con.execute("""
     WITH v AS (
         SELECT stay_id, charttime, itemid, valuenum FROM chartevents
-        WHERE itemid IN (220045,220179,220180,220050,220051,220052,223761,223762,220210,220277)
-          AND valuenum IS NOT NULL
+        WHERE itemid IN (
+            220045,220179,220180,220050,220051,220052,
+            223761,223762,220210,220277,
+            220739, 223900, 223901  -- GCS Eye, Verbal, Motor
+        )
+        AND valuenum IS NOT NULL
     )
     SELECT i.stay_id,
            GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (v.charttime - i.intime))/3600))::INT AS hrs_from_admit,
@@ -121,7 +127,11 @@ vitals_df = con.execute("""
                     WHEN v.itemid=223761 AND v.valuenum BETWEEN 86  AND 113 THEN (v.valuenum-32)*5.0/9.0
                END) AS temperature_c,
            MAX(CASE WHEN v.itemid=220277 AND v.valuenum BETWEEN 50  AND 100 THEN v.valuenum END) AS spo2,
-           MAX(CASE WHEN v.itemid=220210 AND v.valuenum BETWEEN 4   AND 60  THEN v.valuenum END) AS resp_rate
+           MAX(CASE WHEN v.itemid=220210 AND v.valuenum BETWEEN 4   AND 60  THEN v.valuenum END) AS resp_rate,
+           -- GCS components (valid ranges: eye 1-4, verbal 1-5, motor 1-6)
+           MIN(CASE WHEN v.itemid=220739 AND v.valuenum BETWEEN 1 AND 4 THEN v.valuenum END) AS gcs_eye,
+           MIN(CASE WHEN v.itemid=223900 AND v.valuenum BETWEEN 1 AND 5 THEN v.valuenum END) AS gcs_verbal,
+           MIN(CASE WHEN v.itemid=223901 AND v.valuenum BETWEEN 1 AND 6 THEN v.valuenum END) AS gcs_motor
     FROM v JOIN icustays i ON v.stay_id = i.stay_id
     WHERE v.charttime >= i.intime AND v.charttime <= i.outtime
     GROUP BY i.stay_id, hrs_from_admit ORDER BY i.stay_id, hrs_from_admit
@@ -243,19 +253,147 @@ treat_sed = con.execute(f"""
 """).pl()
 print(f"  sedation → {treat_sed.shape}")
 
-treatment_df = (treat_input.join(treat_emar, on="stay_id", how="left")
-    .join(treat_rx, on="stay_id", how="left")
-    .join(treat_resp, on="stay_id", how="left")
-    .join(treat_sed, on="stay_id", how="left").fill_null(0))
+
+# Blood products (h0-6)
+treat_blood = con.execute(f"""
+    SELECT i.stay_id,
+        MAX(CASE WHEN ie.itemid IN (225168,225170,225171,220970) THEN 1 ELSE 0 END)
+            AS has_blood_products_obs,
+        COALESCE(SUM(CASE WHEN ie.itemid = 225168 THEN ie.amount END), 0)
+            AS total_prbc_ml,
+        MAX(CASE WHEN ie.itemid IN (220864, 220862) THEN 1 ELSE 0 END)
+            AS has_albumin_obs
+    FROM icustays i LEFT JOIN inputevents ie ON ie.stay_id = i.stay_id
+        AND ie.starttime >= i.intime
+        AND ie.starttime < i.intime + INTERVAL '{OBS_HOURS}' HOUR
+    GROUP BY i.stay_id
+""").pl()
+print(f"  blood products → {treat_blood.shape}")
+
+# RRT / dialysis (h0-6)
+treat_rrt = con.execute(f"""
+    SELECT i.stay_id,
+        MAX(CASE WHEN pe.itemid IN (225441,225802,225803,225805,225809,225955)
+            THEN 1 ELSE 0 END) AS has_rrt_obs
+    FROM icustays i LEFT JOIN procedureevents pe ON pe.stay_id = i.stay_id
+        AND pe.starttime >= i.intime
+        AND pe.starttime < i.intime + INTERVAL '{OBS_HOURS}' HOUR
+    GROUP BY i.stay_id
+""").pl()
+print(f"  rrt → {treat_rrt.shape}")
+
+# Insulin infusion + invasive lines (h0-6)
+treat_lines = con.execute(f"""
+    SELECT i.stay_id,
+        MAX(CASE WHEN ie.itemid = 223258 THEN 1 ELSE 0 END)
+            AS has_insulin_infusion_obs,
+        MAX(CASE WHEN pe.itemid = 225752 THEN 1 ELSE 0 END)
+            AS has_arterial_line_obs,
+        MAX(CASE WHEN pe.itemid IN (224263, 224267, 225199) THEN 1 ELSE 0 END)
+            AS has_central_line_obs
+    FROM icustays i
+    LEFT JOIN inputevents ie
+        ON ie.stay_id = i.stay_id
+        AND ie.starttime >= i.intime
+        AND ie.starttime < i.intime + INTERVAL '{OBS_HOURS}' HOUR
+        AND ie.itemid = 223258
+    LEFT JOIN procedureevents pe
+        ON pe.stay_id = i.stay_id
+        AND pe.starttime >= i.intime
+        AND pe.starttime < i.intime + INTERVAL '{OBS_HOURS}' HOUR
+        AND pe.itemid IN (225752, 224263, 224267, 225199)
+    GROUP BY i.stay_id
+""").pl()
+print(f"  insulin + lines → {treat_lines.shape}")
+
+# Admission type, location, comorbidities (static)
+treat_static = con.execute(f"""
+    WITH comorbidities AS (
+        SELECT d.hadm_id,
+            MAX(CASE WHEN (d.icd_version=9  AND d.icd_code LIKE '401%')
+                       OR (d.icd_version=10 AND d.icd_code LIKE 'I10%')
+                THEN 1 ELSE 0 END) AS has_hypertension,
+            MAX(CASE WHEN (d.icd_version=9  AND d.icd_code LIKE '250%')
+                       OR (d.icd_version=10 AND (d.icd_code LIKE 'E10%'
+                                              OR d.icd_code LIKE 'E11%'))
+                THEN 1 ELSE 0 END) AS has_diabetes,
+            MAX(CASE WHEN (d.icd_version=9  AND d.icd_code LIKE '428%')
+                       OR (d.icd_version=10 AND d.icd_code LIKE 'I50%')
+                THEN 1 ELSE 0 END) AS has_chf,
+            MAX(CASE WHEN (d.icd_version=9  AND d.icd_code LIKE '585%')
+                       OR (d.icd_version=10 AND d.icd_code LIKE 'N18%')
+                THEN 1 ELSE 0 END) AS has_ckd,
+            MAX(CASE WHEN (d.icd_version=9  AND d.icd_code LIKE '496%')
+                       OR (d.icd_version=10 AND d.icd_code LIKE 'J44%')
+                THEN 1 ELSE 0 END) AS has_copd,
+            MAX(CASE WHEN (d.icd_version=9  AND d.icd_code LIKE '571%')
+                       OR (d.icd_version=10 AND d.icd_code LIKE 'K74%')
+                THEN 1 ELSE 0 END) AS has_liver_disease,
+            MAX(CASE WHEN (d.icd_version=9  AND (
+                               CAST(d.icd_code AS VARCHAR) BETWEEN '140' AND '172'
+                            OR d.icd_code LIKE '19%'
+                            OR d.icd_code LIKE '200%'
+                            OR d.icd_code LIKE '208%'))
+                       OR (d.icd_version=10 AND d.icd_code LIKE 'C%')
+                THEN 1 ELSE 0 END) AS has_malignancy
+        FROM diagnoses_icd d
+        GROUP BY d.hadm_id
+    )
+    SELECT
+        i.stay_id,
+        -- Admission type one-hot (exact strings from your MIMIC-IV 3.1)
+        CASE WHEN a.admission_type = 'EW EMER.'  THEN 1 ELSE 0 END
+            AS admission_type_ewemer,
+        CASE WHEN a.admission_type = 'URGENT'    THEN 1 ELSE 0 END
+            AS admission_type_urgent,
+        CASE WHEN a.admission_type = 'ELECTIVE'  THEN 1 ELSE 0 END
+            AS admission_type_elective,
+        -- Admission location one-hot
+        CASE WHEN a.admission_location = 'EMERGENCY ROOM'         THEN 1 ELSE 0 END
+            AS admission_loc_ed,
+        CASE WHEN a.admission_location = 'TRANSFER FROM HOSPITAL' THEN 1 ELSE 0 END
+            AS admission_loc_transfer,
+        -- Comorbidities (defaulting to 0 if hadm not in diagnoses_icd)
+        COALESCE(c.has_hypertension, 0)  AS has_hypertension,
+        COALESCE(c.has_diabetes,     0)  AS has_diabetes,
+        COALESCE(c.has_chf,          0)  AS has_chf,
+        COALESCE(c.has_ckd,          0)  AS has_ckd,
+        COALESCE(c.has_copd,         0)  AS has_copd,
+        COALESCE(c.has_liver_disease,0)  AS has_liver_disease,
+        COALESCE(c.has_malignancy,   0)  AS has_malignancy
+    FROM icustays i
+    JOIN admissions a ON i.hadm_id = a.hadm_id
+    LEFT JOIN comorbidities c ON i.hadm_id = c.hadm_id
+""").pl()
+print(f"  static (admission + comorbidities) → {treat_static.shape}")
+
+
+treatment_df = (treat_input.join(treat_emar,   on="stay_id", how="left")
+    .join(treat_rx,     on="stay_id", how="left")
+    .join(treat_resp,   on="stay_id", how="left")
+    .join(treat_sed,    on="stay_id", how="left")
+    .join(treat_blood,  on="stay_id", how="left")
+    .join(treat_rrt,    on="stay_id", how="left")
+    .join(treat_lines,  on="stay_id", how="left")
+    .join(treat_static, on="stay_id", how="left")
+    .fill_null(0))
 
 TREATMENT_COLS = [
-    "total_crystalloid_ml", "has_norepinephrine_obs", "has_phenylephrine_obs",
-    "has_dopamine_obs", "has_vasopressin_obs", "time_to_first_vaso_hrs",
+    # Existing
+    "total_crystalloid_ml",
     "early_steroid", "early_antibiotic", "n_distinct_meds",
     "steroid_ordered", "time_to_first_abx_order_hrs",
-    "max_fio2_obs", "mean_fio2_obs", "max_peep_obs", "max_tidal_volume_obs",
-    "high_fio2_flag", "on_peep_flag",
-    "has_propofol_midaz_obs", "total_sedation_dose_obs",
+    # New — blood products & organ support
+    "has_blood_products_obs", "total_prbc_ml", "has_albumin_obs",
+    "has_rrt_obs", "has_insulin_infusion_obs",
+    # New — invasive monitoring
+    "has_arterial_line_obs", "has_central_line_obs",
+    # New — admission context
+    "admission_type_ewemer", "admission_type_urgent", "admission_type_elective",
+    "admission_loc_ed", "admission_loc_transfer",
+    # New — comorbidities
+    "has_hypertension", "has_diabetes", "has_chf",
+    "has_ckd", "has_copd", "has_liver_disease", "has_malignancy",
 ]
 treatment_df.write_parquet("/kaggle/working/mimiciv_treatment_features.parquet")
 print(f"  Treatment features: {len(TREATMENT_COLS)} cols")
@@ -327,6 +465,8 @@ full_labels = con.execute(f"""
     FROM eligible e
     ORDER BY e.intime
 """).pl()
+
+
 full_labels = full_labels.join(
     demo_df.select(["stay_id","anchor_year_group","anchor_year"]).unique("stay_id"), on="stay_id", how="left")
 full_labels.write_parquet("/kaggle/working/mimiciv_full_labels.parquet")
@@ -370,6 +510,7 @@ feature_cols = [
     "base_excess","rbc","chloride","calcium",
     "urine_output","urine_output_ml_kg_hr","weight",
     "heart_rate_time_delta","map_invasive_time_delta","lactate_time_delta",
+    "gcs_eye", "gcs_verbal", "gcs_motor",
 ]
 
 for col in feature_cols:
@@ -494,7 +635,7 @@ ts = ts.join(intime_df.unique("stay_id"), on="stay_id", how="left")
 ordered = (
     ["stay_id","intime","time_idx","hrs_from_admit"] +
     ["heart_rate","sbp_noninvasive","dbp_noninvasive","sbp_invasive","dbp_invasive",
-     "map_invasive","temperature_c","spo2","resp_rate"] +
+     "map_invasive","temperature_c","spo2","resp_rate", "gcs_eye", "gcs_verbal", "gcs_motor"] +
     ["creatinine","wbc","platelets","lactate","bun","bilirubin_total","glucose",
      "hematocrit","potassium","sodium","troponin_t","ph_venous","pco2_venous",
      "base_excess","rbc","chloride","calcium"] +
@@ -510,22 +651,39 @@ final_df = ts.select([c for c in ordered if c in ts.columns])
 
 # ── TEMPORAL SPLIT ─────────────────────────────────────────────────────────────
 print("\n--- Temporal Split ---")
-# 1. Split 2014-2016 chronologically: first 80% train, last 20% val
+
+# All train-era stays sorted by year-group first, then by intime within each group.
+# anchor_year_group sorts correctly as a string ("2008 - 2010" < "2011 - 2013" etc.)
+# intime is per-patient shifted so is only comparable WITHIN a group, not across groups.
 intime_df = con.execute("SELECT stay_id, intime FROM icustays").pl()
+
 train_group = final_df.filter(pl.col("anchor_year_group").is_in(TRAIN_YEARS))
-train_with_time = (train_group.filter(pl.col("hrs_from_admit") == 0)
-                   .join(intime_df, on="stay_id", how="left").sort("intime"))
+train_with_time = (
+    train_group
+    .filter(pl.col("hrs_from_admit") == 0)
+    .join(intime_df, on="stay_id", how="left")
+    .sort(["anchor_year_group", "intime"])   # group order first, then time within group
+)
 all_train_stays = train_with_time["stay_id"].to_list()
 
+# 80% train / 20% val — chronological across the full training era
 cutoff = int(len(all_train_stays) * 0.80)
 train_ids = set(all_train_stays[:cutoff])
 val_ids   = set(all_train_stays[cutoff:])
 
-# 2. 2017-2019 and 2020-2022 are both test (pre-drift and post-drift)
-test_ids = set(final_df.filter(
-    pl.col("anchor_year_group").is_in(["2017 - 2019", "2020 - 2022"]))["stay_id"])
+# Both test year-groups go into the test set.
+# The drift detector in Script 2 will automatically determine which is pre/post.
+test_ids = set(
+    final_df.filter(
+        ~pl.col("anchor_year_group").is_in(TRAIN_YEARS)
+    )["stay_id"]
+)
 
-assert len(train_ids & val_ids) == 0 and len(train_ids & test_ids) == 0 and len(val_ids & test_ids) == 0
+assert (
+    len(train_ids & val_ids) == 0
+    and len(train_ids & test_ids) == 0
+    and len(val_ids & test_ids) == 0
+)
 print("✅ Zero leakage")
 
 # Create train set and identify all unique humans (subject_ids) in the train set
@@ -566,3 +724,4 @@ with open("/kaggle/working/feature_meta.json", "w") as f:
     json.dump(meta, f)
 print(f"\n✅ Done. Ongoing-need labels. All {len(TREATMENT_COLS)} treatment features retained.")
 print("No patient exclusions for already_vaso/already_vent.")
+    

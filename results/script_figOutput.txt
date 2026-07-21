@@ -1,0 +1,38 @@
+Loading data...
+✅ eval_post_df: 5749 stays
+✅ Models loaded
+============================================================
+GOLDEN PATIENT — loaded directly from pkl (script5 bridge)
+============================================================
+Golden patient: stay_id=30109096  amnesia_feat=total_crystalloid_ml
+  SHAP src=+0.1127  adp=+1.3539  Δ=16.2670
+  Age=57  Lactate=1.6
+  true_label=1 (from pkl — script2 selected true positive)
+  Located at dataset index 61 (out of 5749 patients)
+  ✅ true_label verified consistent: 1
+
+  Run B IG deltas (from pkl):
+    Physiology: mean=0.2529  max=1.8327
+    Treatment:  mean=0.7774  max=3.2113
+
+  Normalized ratio (XGB/RunB physiology): 1.2×
+
+  Run B Source p=0.664  |  Run B Adapted p=0.686
+  XGB Source p=0.872   |  XGB Adapted p=0.795
+  True label = 1
+
+Drawing figure (v3) ...
+
+✅ Saved → fig_biological_amnesia_v3.png
+Key numbers for paper:
+  Patient: stay_id=30109096, age=57, lactate=1.6
+  Amnesia feature: total crystalloid ml
+  XGB Source SHAP:  +0.1127
+  XGB Adapted SHAP: +1.3539
+  SHAP Delta:       16.2670
+  Run B Source p=0.664  |  Run B Adapted p=0.686
+  XGB Source p=0.872   |  XGB Adapted p=0.795
+  Run B physiology:    raw mean |ΔIG|=0.2529  normalized=0.2529
+  XGBoost physiology:  raw mean |ΔSHAP|=0.8072  normalized=0.3028
+  Normalization: Run B p95=0.0885  XGBoost p95=0.0763
+  Normalized ratio (XGB/RunB physiology): 1.2×
