@@ -1,4 +1,6 @@
 # Biological Amnesia in ICU Time-Series Prediction: A Drift-Adaptive Two-Stream Architecture with Temporal Retrieval
+**Fatema Ferdous Tamanna, K. M. Merajul Arefin, Md. Abdul Masud**  
+*Preprint available on arXiv, 2026*
 
 ## Overview
 This repository contains the complete codebase for an adaptive clinical intelligence architecture designed to mitigate "biological amnesia"—the silent overwriting of stable physiological representations as a model adapts to shifting treatment protocols—and provide a safe, fully governable blueprint for Clinical Decision Support Systems (CDSS) deployed in non-stationary Intensive Care Units. 
