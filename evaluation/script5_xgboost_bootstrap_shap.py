@@ -13,10 +13,6 @@ Three additions for journal-grade submission:
     treatment features). Shows the two-stream architecture adds value beyond
     good feature engineering. Also tested with/without adaptation.
 
-  ADDITION 3: Expanded RAG Corpus (200+ passages)
-    PubMed-style expanded corpus: ~30 relevant ICU/sepsis/ventilation guidelines
-    + ~170 noise passages across 12 unrelated domains. More realistic haystack.
-
 Run AFTER script2 (needs two_stream_models.pt + parquet files).
 
 Dependencies:
