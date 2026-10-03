@@ -1,4 +1,3 @@
-%%writefile models/script3_run_d_single_stream.py
 """
 script_run_d_single_stream.py
 ══════════════════════════════
@@ -61,8 +60,9 @@ EPOCHS, ADAPT_EPOCHS = 50, 40
 PATIENCE, ADAPT_PATIENCE = 8, 8
 BUFFER_SIZE, PSI_THRESH = 500, 0.20
 LABEL_COLS = ["label_vasopressor", "label_intubation", "label_septic_shock"]
-BASE_PATH  = Path("/kaggle/input/datasets/fatematamanna/allnew")
-SAVE_PATH  = Path("/kaggle/working")
+import os
+BASE_PATH  = Path(os.environ.get("DATA_DIR", "/kaggle/input/datasets/fatematamanna/allnew"))
+SAVE_PATH  = Path(os.environ.get("OUT_DIR", "/kaggle/working"))
 
 torch.manual_seed(SEED); np.random.seed(SEED)
 

@@ -1,4 +1,3 @@
-%%writefile preprocessing/script1_preprocessing.py
 """
 script1_preprocessing_v8.py
 ═══════════════════════════
@@ -26,7 +25,9 @@ import polars as pl
 from pathlib import Path
 
 con = duckdb.connect()
-data_path = Path("/kaggle/input/datasets/fatematamanna/mimic4/mimic-iv-3.1")
+import os
+data_path = Path(os.environ.get("MIMIC_DIR", "/kaggle/input/datasets/fatematamanna/mimic4/mimic-iv-3.1"))
+OUT_DIR = os.environ.get("OUT_DIR", "/kaggle/working")
 
 for tbl, path in [
     ("icustays",        "icu/icustays.csv"),
@@ -65,7 +66,7 @@ demo_df = con.execute("""
     WHERE pa.anchor_year_group IS NOT NULL AND pa.anchor_year_group != ''
       AND i.subject_id IS NOT NULL AND i.subject_id > 0
 """).pl()
-demo_df.write_parquet("/kaggle/working/mimiciv_demographics.parquet")
+demo_df.write_parquet(f"{OUT_DIR}/mimiciv_demographics.parquet")
 print(f"Demographics → {demo_df.shape}")
 print("\nanchor_year_group distribution:")
 print(demo_df["anchor_year_group"].value_counts().sort("anchor_year_group"))
@@ -101,7 +102,7 @@ labs_df = con.execute(f"""
     WHERE l.charttime >= i.intime AND l.charttime < i.intime + INTERVAL '{OBS_HOURS}' HOUR
     GROUP BY i.stay_id, hrs_from_admit ORDER BY i.stay_id, hrs_from_admit
 """).pl()
-labs_df.write_parquet("/kaggle/working/mimiciv_labs_hourly.parquet")
+labs_df.write_parquet(f"{OUT_DIR}/mimiciv_labs_hourly.parquet")
 print(f"Labs → {labs_df.shape}")
 
 # ── VITALS ─────────────────────────────────────────────────────────────────────
@@ -136,7 +137,7 @@ vitals_df = con.execute("""
     WHERE v.charttime >= i.intime AND v.charttime <= i.outtime
     GROUP BY i.stay_id, hrs_from_admit ORDER BY i.stay_id, hrs_from_admit
 """).pl()
-vitals_df.write_parquet("/kaggle/working/mimiciv_hourly_vitals_clean.parquet")
+vitals_df.write_parquet(f"{OUT_DIR}/mimiciv_hourly_vitals_clean.parquet")
 print(f"Vitals → {vitals_df.shape}")
 
 # ── INTERVENTIONS — metadata only ─────────────────────────────────────────────
@@ -165,7 +166,7 @@ interv_df = con.execute(f"""
               SELECT 1 FROM hourly h WHERE h.stay_id=g.stay_id AND h.hrs_from_admit=g.hrs_from_admit))
     GROUP BY stay_id, hrs_from_admit ORDER BY stay_id, hrs_from_admit
 """).pl()
-interv_df.write_parquet("/kaggle/working/mimiciv_interventions.parquet")
+interv_df.write_parquet(f"{OUT_DIR}/mimiciv_interventions.parquet")
 print(f"Interventions → {interv_df.shape}")
 
 # ── TREATMENT FEATURES (Stream 2) — ALL features restored ─────────────────────
@@ -395,7 +396,7 @@ TREATMENT_COLS = [
     "has_hypertension", "has_diabetes", "has_chf",
     "has_ckd", "has_copd", "has_liver_disease", "has_malignancy",
 ]
-treatment_df.write_parquet("/kaggle/working/mimiciv_treatment_features.parquet")
+treatment_df.write_parquet(f"{OUT_DIR}/mimiciv_treatment_features.parquet")
 print(f"  Treatment features: {len(TREATMENT_COLS)} cols")
 
 # ── URINE ──────────────────────────────────────────────────────────────────────
@@ -418,7 +419,7 @@ urine_df = con.execute("""
                     THEN -o.value ELSE o.value END)) <= 1500
     ORDER BY i.stay_id, hrs_from_admit
 """).pl()
-urine_df.write_parquet("/kaggle/working/mimiciv_urine_hourly_final.parquet")
+urine_df.write_parquet(f"{OUT_DIR}/mimiciv_urine_hourly_final.parquet")
 print(f"Urine → {urine_df.shape}")
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -469,16 +470,16 @@ full_labels = con.execute(f"""
 
 full_labels = full_labels.join(
     demo_df.select(["stay_id","anchor_year_group","anchor_year"]).unique("stay_id"), on="stay_id", how="left")
-full_labels.write_parquet("/kaggle/working/mimiciv_full_labels.parquet")
+full_labels.write_parquet(f"{OUT_DIR}/mimiciv_full_labels.parquet")
 print(f"Labels → {full_labels.shape}")
 for col in ["label_vasopressor","label_intubation","label_septic_shock"]:
     print(f"  {col}: {full_labels[col].mean():.4f} ({int(full_labels[col].sum())} positives)")
     
 # ── JOIN TIME-SERIES ───────────────────────────────────────────────────────────
-vitals = pl.read_parquet("/kaggle/working/mimiciv_hourly_vitals_clean.parquet")
-labs   = pl.read_parquet("/kaggle/working/mimiciv_labs_hourly.parquet")
-interv = pl.read_parquet("/kaggle/working/mimiciv_interventions.parquet")
-urine  = pl.read_parquet("/kaggle/working/mimiciv_urine_hourly_final.parquet")
+vitals = pl.read_parquet(f"{OUT_DIR}/mimiciv_hourly_vitals_clean.parquet")
+labs   = pl.read_parquet(f"{OUT_DIR}/mimiciv_labs_hourly.parquet")
+interv = pl.read_parquet(f"{OUT_DIR}/mimiciv_interventions.parquet")
+urine  = pl.read_parquet(f"{OUT_DIR}/mimiciv_urine_hourly_final.parquet")
 
 ts = (vitals.join(labs, on=["stay_id","hrs_from_admit"], how="left")
       .join(interv, on=["stay_id","hrs_from_admit"], how="left")
@@ -715,12 +716,12 @@ def validate_and_save(df, name, path, lbl_cols):
     df.write_parquet(path); print(f"  → {path}")
 
 label_cols_final = [c for c in final_df.columns if c.startswith("label_")]
-validate_and_save(train_final, "TRAIN", "/kaggle/working/train_final_enriched.parquet", label_cols_final)
-validate_and_save(val_final,   "VAL",   "/kaggle/working/val_final_enriched.parquet",   label_cols_final)
-validate_and_save(test_final,  "TEST",  "/kaggle/working/test_final_enriched.parquet",  label_cols_final)
+validate_and_save(train_final, "TRAIN", f"{OUT_DIR}/train_final_enriched4.parquet", label_cols_final)
+validate_and_save(val_final,   "VAL",   f"{OUT_DIR}/val_final_enriched4.parquet",   label_cols_final)
+validate_and_save(test_final,  "TEST",  f"{OUT_DIR}/test_final_enriched4.parquet",  label_cols_final)
 
 meta = {"treatment_cols": TREATMENT_COLS, "obs_hours": OBS_HOURS, "seq_len": SEQ_LEN}
-with open("/kaggle/working/feature_meta.json", "w") as f:
+with open(f"{OUT_DIR}/feature_meta.json", "w") as f:
     json.dump(meta, f)
 print(f"\n✅ Done. Ongoing-need labels. All {len(TREATMENT_COLS)} treatment features retained.")
 print("No patient exclusions for already_vaso/already_vent.")

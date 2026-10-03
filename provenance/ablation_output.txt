@@ -1,0 +1,22 @@
+Output of script8_ablation_studies.py (Kaggle run; evaluation partition = 5,749 stays)
+
+--- TABLE A: Split Ratio Ablation (buffer fixed = 500) ---
+|                     |   post_auroc |   pre_auroc |
+|:--------------------|-------------:|------------:|
+| Split_20            |       0.9127 |      0.9141 |
+| Split_30 (Baseline) |       0.9212 |      0.9097 |
+| Split_40            |       0.9024 |      0.9181 |
+
+--- TABLE B: Buffer Size Ablation (split fixed = 0.30) ---
+|                       |   post_auroc |   pre_auroc |
+|:----------------------|-------------:|------------:|
+| Buffer_0              |       0.9206 |      0.9052 |
+| Buffer_250            |       0.9201 |      0.9013 |
+| Buffer_500 (Baseline) |       0.9212 |      0.9097 |
+
+--- Variance summary for paper text ---
+  Split ratio post-AUROC range: 0.9024 - 0.9212 (spread = 0.0188)
+  Buffer post-AUROC: {'Buffer_0': 0.9206175965632881, 'Buffer_250': 0.9201213973672459, 'Split_30_Baseline': 0.9212210880913198}
+  Buffer pre-AUROC (forgetting check): {'Buffer_0': 0.9051576684259185, 'Buffer_250': 0.9013281342049845, 'Split_30_Baseline': 0.9097083182832275}
+
+✅ script8_ablation_studies.py (corrected) complete

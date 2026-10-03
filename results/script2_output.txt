@@ -349,15 +349,15 @@ ADAPTATION EXPLANATION — RunB
   Top treatment features driving adaptation (RunB):
   Feature                             Importance    Drift   Combined
   total_crystalloid_ml                    1.0000   0.7564   0.756383
-  early_antibiotic                        0.1789   0.1429   0.025553
-  time_to_first_abx_order_hrs             0.3885   0.0380   0.014772
-  has_insulin_infusion_obs                0.1109   0.0800   0.008874
-  gender_M                                0.1180   0.0373   0.004402
-  has_blood_products_obs                  0.0426   0.0798   0.003398
-  early_steroid                           0.0417   0.0650   0.002707
-  steroid_ordered                         0.0657   0.0052   0.000340
-  has_rrt_obs                             0.0031   0.0069   0.000021
-  n_distinct_meds                         0.2648   0.0000   0.000000
+  early_antibiotic                        0.1848   0.1429   0.026402
+  time_to_first_abx_order_hrs             0.3831   0.0380   0.014565
+  has_insulin_infusion_obs                0.1485   0.0800   0.011883
+  gender_M                                0.1432   0.0373   0.005340
+  has_blood_products_obs                  0.0574   0.0798   0.004582
+  early_steroid                           0.0394   0.0650   0.002561
+  steroid_ordered                         0.0743   0.0052   0.000385
+  has_rrt_obs                             0.0042   0.0069   0.000029
+  n_distinct_meds                         0.2736   0.0000   0.000000
 
 ════════════════════════════════════════════════════════════
 ADAPTATION EXPLANATION — RunC
@@ -372,15 +372,15 @@ ADAPTATION EXPLANATION — RunC
   Top treatment features driving adaptation (RunC):
   Feature                             Importance    Drift   Combined
   total_crystalloid_ml                    1.0000   0.7564   0.756383
-  early_antibiotic                        0.1293   0.1429   0.018469
-  time_to_first_abx_order_hrs             0.2884   0.0380   0.010963
-  has_blood_products_obs                  0.0848   0.0798   0.006770
-  has_insulin_infusion_obs                0.0596   0.0800   0.004768
-  gender_M                                0.1016   0.0373   0.003791
-  early_steroid                           0.0268   0.0650   0.001742
-  steroid_ordered                         0.0480   0.0052   0.000249
-  n_distinct_meds                         0.2387   0.0000   0.000000
-  total_prbc_ml                           0.0875   0.0000   0.000000
+  early_antibiotic                        0.1327   0.1429   0.018955
+  time_to_first_abx_order_hrs             0.3013   0.0380   0.011454
+  has_insulin_infusion_obs                0.0731   0.0800   0.005851
+  has_blood_products_obs                  0.0535   0.0798   0.004271
+  gender_M                                0.1061   0.0373   0.003959
+  early_steroid                           0.0249   0.0650   0.001617
+  steroid_ordered                         0.0379   0.0052   0.000196
+  has_rrt_obs                             0.0020   0.0069   0.000014
+  n_distinct_meds                         0.2568   0.0000   0.000000
 
 Mean per-label seed-std:  B=0.0004 | C=0.0026  (C noisier (overfit risk))
 
@@ -491,7 +491,7 @@ shape: (2, 2)
 ======================================================================
 COMPUTING IG ATTRIBUTION DATA FOR FIG_BIOLOGICAL_AMNESIA
 ======================================================================
-  Selected patient stay_id=30109096 (index 61)
+  Selected patient stay_id=[redacted] (index 61)
 ✅ Saved fig_amnesia_ig_data.pkl → script5 bridge will merge XGBoost/SHAP side
 
 ======================================================================

@@ -1,126 +1,67 @@
-# A Drift-Adaptive Framework for Clinical Time-Series: Two-Stream Architectures with Attribution-Driven Semantic Retrieval
+# Bounded model updates and explanation stability — code
 
-**Fatema Ferdous Tamanna, K. M. Merajul Arefin, Md. Abdul Masud**  
-*Preprint available on arXiv under the title: "Biological Amnesia in ICU Time-Series Prediction: A Drift-Adaptive Two-Stream Architecture with Temporal Retrieval", 2026*
+Code for the manuscript "Where does explanation movement go when part of a clinical model is frozen? A bounded-update case study in intensive care using MIMIC-IV".
+It trains a two-stream ICU model (LSTM physiology encoder, MLP treatment stream,
+fusion head) on MIMIC-IV 2008–2013, detects drift at 2020–2022, adapts it two ways
+(Run B: encoder excluded from the optimiser; Run C: every layer updates), and
+compares Integrated Gradients attributions and attribution-conditioned PubMed
+retrieval against the source model.
 
-Short Description: https://tinywebs.site/SV9YHZ
+## Data
 
-## Overview
-This repository contains the complete codebase for an adaptive clinical intelligence architecture designed to mitigate "biological amnesia"—the silent overwriting of stable physiological representations as a model adapts to shifting treatment protocols—and provide a safe, fully governable blueprint for Clinical Decision Support Systems (CDSS) deployed in non-stationary Intensive Care Units. 
+MIMIC-IV v3.1 requires credentialed PhysioNet access and is not redistributed here.
+No patient-level data or stay-level outputs are included in this repository; the
+files in `results/` are aggregate results only.
 
-The framework integrates four primary components:
-1. **Ongoing-need label formulation** — Replaces initiation-only labels to eliminate anti-correlation leakage and accurately capture the clinical need for interventions.
-2. **Two-stream neural architecture** — Structurally decouples stable physiological dynamics (LSTM) from evolving treatment protocols (MLP).
-3. **Dual-signal drift detection & selective adaptation with Explanation** — Uses a composite distributional and accuracy trigger to update *only* the treatment stream, freezing physiological representations.
-4. **Attribution-driven Temporal RAG** — Uses per-instance Integrated Gradients (IG) to build patient-specific PubMed queries, conditioning retrieved evidence on the detected drift era.
+## Setup
 
-Evaluated on **84,792 MIMIC-IV v3.1 ICU stays (2008–2022)** using strict chronological splitting and subject-level decontamination.
+```
+pip install -r requirements.txt
+export MIMIC_DIR=/path/to/mimic-iv-3.1     # raw MIMIC-IV (hosp/, icu/)
+export DATA_DIR=/path/to/enriched_parquets  # output of step 1
+export OUT_DIR=/path/to/working_dir         # models and results
+```
 
---------------------------------------------------------------------------------
+Run every script from the repository root so that `utils/` and `models/` import.
+Steps 1–3 were run on Kaggle (GPU); the rest ran locally on CPU.
 
-## Requirements & Data Access
-* **Python 3.9+** (Developed on Kaggle using a P100 GPU).
-* **MIMIC-IV v3.1 Access:** This study uses MIMIC-IV, which is freely available via PhysioNet upon credentialing. 
-* **Data Privacy:** Due to the strict PhysioNet Data Use Agreement (DUA), we **cannot share** the preprocessed patient data splits, prediction arrays, or trained model weights. All results are fully reproducible from the raw MIMIC-IV files using the provided pipeline. Aggregate population-level logs and metrics are provided in the `results/` folder.
+## Pipeline
 
---------------------------------------------------------------------------------
+| Step | Script | Produces | Paper |
+|---|---|---|---|
+| 1 | `script1_preprocessing.py` | `{train,val,test}_final_enriched4.parquet` | Cohort, labels, features |
+| 2 | `script2_two_stream_model.py` | `two_stream_models.pt` (source + Run B), `temp_run_c_weights.pt`, `eval_split.json`, `post_drift_predictions.npz`, console log | Source training, drift trigger, Runs A–C, AUROC, B−C bootstrap, weight change, update audit |
+| 3 | `script3_run_d_single_stream.py` | `run_d_model.pt`, `run_d_results.json`, `post_drift_predictions_d.npz` | Run D (supplementary material) |
+| 4 | `script13Rag_BvsC.py` | `pubmed_corpus.json`, `pubmed_rag_explanations.json`, `pubmed_rag_stability.json`, `pubmed_rag_summary.json` | Integrated Gradients, MedCPT retrieval, Jaccard, attribution-mass shift, MeSH P@5 |
+| 5 | `script14_rag_significance_rbo.py` | `pubmed_rag_significance.json` | RBO, paired randomisation tests, bootstrap CIs, stream contrast, per-label results |
+| 6 | `script15_bca_and_brier.py` | console | BCa AUROC intervals from `post_drift_predictions*.npz` |
+| 7 | `script18_attribution_similarity.py` | `attribution_similarity.json` | Table 1 attribution rows, sign flips, encoder bitwise-identity check |
+| 8 | `script19_regime_separability.py` | `regime_separability.json` | AUC 0.757 / 82.7% separability, treatment-stream attribution similarity, contrasts without septic shock |
+| 9 | `script20_multiseed_adaptation.py` | `multiseed_adapted_weights.pt`, `multiseed_adaptation.json` | Runs B and C re-adapted under all five seeds (rebuilt adaptation partitions, evaluation population fixed) |
+| 10 | `script22_relocation_check.py` | `relocation_check.json` | Five-seed replication of the attribution contrasts and weight change (supplementary material, Table S4) |
+| 11 | `script23_faithfulness.py` | `faithfulness.json` | Attribution deletion test (supplementary material, Table S5) |
+| 12 | `script8_ablation_studies.py` | `ablation_results.json` | Replay-buffer and split-ratio ablation (supplementary material; log in `provenance/ablation_output.txt`) |
+| 13 | `script27_cohort_table.py` | console | Cohort characteristics by era (supplementary material, Table S3) |
 
-## Execution Order
-The pipeline is strictly sequential. Scripts must be run in the following order:
+Label checks (independent, need raw MIMIC-IV):
 
-### 1. Data Generation
-* **`preprocessing/script1_preprocessing.py`**
-  * **Input:** Raw MIMIC-IV CSVs (`hosp/`, `icu/`)
-  * **Output:** `train/val/test_final_enriched.parquet`, `mimiciv_demographics.parquet`, `feature_meta.json`
-  * **Note:** Applies the "Ongoing Need" label formulation.
+- `check_vasopressor_itemset.py` — share of vasopressor positives affected by the mannitol code and the missing vasopressin
 
-### 2. Model Training & Drift Adaptation
-* **`models/script2_two_stream_model.py`**
-  * **Action:** Trains Run A (static), Run B (selective adaptation), Run C (full adaptation). Detects 2020-2022 drift. 
-  * **Output:** `two_stream_models.pt`, `eval_split.json` (subject-level locks), `clinical_drift_audit.txt`.
-  * **`utils/drift_explainability.py`**: The automated governance module. It is called directly during `script2`'s adaptation phase to perform permutation-based feature ablation. It generates the human-readable `clinical_drift_audit.txt` log.
-* **`models/script3_run_d_single_stream.py`**
-  * **Action:** Trains Run D (monolithic single-stream LSTM baseline with late-fusion).
+Shared modules: `utils/constants.py`, `utils/data_utils.py`, `utils/train_utils.py`,
+`utils/drift_explainability.py`, `models/architectures.py`.
 
-### 3. Evaluation & Baseline Comparisons
-* **`evaluation/script5_xgboost_bootstrap_shap.py`**
-  * **Action:** Trains XGBoost baselines (Source and Adapted), calculates Bootstrap CIs, and extracts population-level SHAP values. 
-  * **Output:** `bootstrap_ci_results.json`, `full_comparison_results.json`, `xgb_predictions_corrected.npz`.
-* **`evaluation/script6_disagreement_matrix.py`**
-  * **Action:** Generates the bedside disagreement analysis comparing all models.
-  * **Output:** `disagreement_matrix_results_with_runD.json`, and disagreement matrix `.png` figures.
-* **`evaluation/script7_absolute_counts.py`**
-  * **Action:** Computes absolute TP/FP/TN/FN counts across models at standard thresholds.
-  * **Output:** `absolute_counts_per_model.json`.
+## Notes
 
-### 4. Explainability & Retrieval (RAG)
-* **`evaluation/script_mc4_delta_attribution.py`**
-  * **Action:** Computes population-level ∆-Attribution metrics to formally quantify biological amnesia.
-  * **Output:** `delta_attribution_table.json`, `delta_attribution_summary.txt`.
-* **`evaluation/fig.py`**
-  * **Action:** Generates the 5-panel Biological Amnesia figure illustrating stable IG attributions (Run B) vs. shifting SHAP attributions (XGBoost).
-  * **Output:** `fig_biological_amnesia_v3.png`.
-* **`rag/script13_rag_pubmed_final.py`**
-  * **Action:** Executes the Attribution-Driven Temporal RAG pipeline using MedCPT. 
-  * **Output:** `pubmed_rag_summary.json` and outputs for the clinician-rated scaffold.
+- Seeds: source models use seeds 42, 123, 7, 2024, 99 and the median by validation
+  AUROC is the source. Each adaptation arm is run under the same five seeds and the
+  seed with the median mean AUROC on the post-drift evaluation partition is kept
+  (Run B: 2024, Run C: 123).
+- Bootstrap intervals in `script2` are percentile intervals (1,000 resamples).
+- `provenance/` holds the original logs from the Kaggle run (n = 5,749): the Run B vs
+  Run A BCa interval (`script5_xgboost_bootstrap_shap.py`, `script5_output.txt`), the
+  Run D log and the replay-buffer ablation log. `script15` recomputes the BCa intervals
+  from `post_drift_predictions.npz`.
 
---------------------------------------------------------------------------------
+## Licence
 
-## Key Results
-
-### 1. Bedside Clinical Safety and Calibration
-While monolithic retraining (XGBoost) achieved high aggregate AUROC, it exhibited probability mass compression on the rarest condition evaluated (septic shock). Our Two-Stream framework (Run B) mitigated this compression and safely triggered true-positive alerts:
-
-* **Disagreement Asymmetry:** In a threshold-based disagreement analysis (Catch ≥ 0.50, Miss < 0.10), Run B identified **26 true-positive septic shock cases** that the XGBoost-adapted model missed. Zero cases were missed in the reverse direction.
-* **Precision-Recall (AUPRC):** After adaptation, the monolithic XGBoost baseline's septic shock AUPRC dropped from 0.3313 to 0.2600. Our selective adaptation framework improved septic shock AUPRC to **0.4131**.
-* **Calibration:** Run B improved the Septic Shock Brier score to **0.0184**, whereas the static baseline yielded 0.0613.
-
-### 2. Mitigating Biological Amnesia
-* **Architectural Guarantee:** Monolithic retraining unintentionally altered stable physiological representations while adapting to new protocols. By structurally decoupling the streams, the Two-Stream framework mathematically preserves the physiological representations (physio mean_rel_Δ = 0.0000).
-* **Population-Level $\Delta$-Attribution:** Population-level analysis showed that full retraining significantly distorted 93.6% of feature attributions. Run B confined all adaptations exclusively to the treatment and fusion streams, leaving physiological weights bitwise identical to the source model.
-
-### 3. Attribution-Driven Temporal RAG
-Because Run B structurally locks the physiological representations, it maintains consistent medical evidence retrieval even as clinical protocols drift.
-* **Retrieval Stability:** Run B maintained a Physiology Jaccard overlap of **0.573** with the pre-drift era documents, compared to 0.330 for the retrained baseline. 
-* **Retrieval Quality:** Run B achieved an automatic **MeSH P@5 of 0.635** and a **Clinician-rated P@5 of 0.800**, ensuring that retrieved PubMed literature remains anchored to the patient's actual biology.
-
---------------------------------------------------------------------------------
-
-## Automated Governance Audit Logs
-Unlike monolithic retraining, our Two-Stream framework generates human-readable, causal audit logs at each adaptation event. This ensures model updates remain transparent, interpretable, and contestable by clinicians. 
-
-For example, when detecting the severe protocol shifts in the 2020–2022 COVID-19 cohort, the system automatically generated the following explanation (`clinical_drift_audit.txt`) before adapting its weights:
-
-> **🚨 CLINICAL PRACTICE SHIFT DETECTED**
-> Between the training period (2014-2016) and the new data (2020-2022), patient treatment patterns have changed significantly.
-> 
-> **Key clinical changes driving this update:**
-> * **Total Crystalloid Ml:** Average value decreased from 791.01 to 254.97 (Severe Drift PSI: 0.76)
-> * **Early Antibiotic:** Usage increased by 14.3% in the newer data.
-> * **Insulin Infusion:** Usage dropped by 8.0% in the newer data.
-> * **Blood Products:** Usage dropped by 8.0% in the newer data.
-> * **Early Steroid:** Usage increased by 6.5% in the newer data.
-> 
-> *FINAL MODEL UPDATE AUDIT LOG:*
-> *To maintain accuracy safely, the model locked its physiological representation and exclusively updated its treatment and fusion layers. This restores accuracy by forcing the network to relearn the specific features that carry high predictive importance but suffered from severe real-world drift (most notably Total Crystalloid Ml and Early Antibiotic).*
-
---------------------------------------------------------------------------------
-
-## RAG Evaluation Data
-If a local corpus is not found, the script `rag/script13_rag_pubmed_final.py` will automatically ping the NCBI API to reconstruct the era-matched 522-abstract PubMed corpus. 
-
-For transparency, we have included `pubmed_rag_rater_output.csv` in the repository. This file contains the specific abstracts retrieved during our Temporal RAG evaluation and the human-annotated relevance scores used to calculate the Clinician-rated P@5 metric. Because this file contains only public medical abstracts and binary ratings, it contains no patient data and is freely shareable.
-
---------------------------------------------------------------------------------
-
-## License
-MIT License. See `LICENSE` for details.
-
---------------------------------------------------------------------------------
-
-## Contact
-**Fatema Ferdous Tamanna** (Corresponding Author)  
-Dept. of Computer Science and Information Technology  
-Patuakhali Science and Technology University, Bangladesh  
-fatimatamannaah@gmail.com  
-ORCID: 0009-0002-2101-4391
+See `LICENSE`.

@@ -1,25 +1,42 @@
-%%writefile rag/script13_rag_pubmed_final.py
 """
-script13_rag_pubmed_final.py
+script13_rag_pubmed_bvsc.py
 ════════════════════════════════════════════════════════════════════
-Attribution-Guided RAG with Retrieval Stability Evaluation.
+Attribution-Guided RAG with Retrieval Stability Evaluation — Run B vs Run C.
+
+This is the Run-B-vs-Run-C counterpart of script13_rag_pubmed_final.py
+(which contrasted Run B against XGBoost). XGBoost has been removed from the
+paper; the retrieval contrast is now between the two two-stream adaptation
+strategies that ARE in the paper:
+
+    Run B — two-stream, physiology LSTM FROZEN during adaptation
+    Run C — two-stream, EVERYTHING unfrozen during adaptation (full fine-tune)
+
+Because Run B and Run C are the *same architecture* and differ only in the
+freeze, this is a strictly controlled comparison: it isolates the effect of
+the physiology freeze on retrieval, with no confound from a different model
+family or a different attribution method (the earlier XGBoost contrast mixed
+SHAP-vs-IG and tree-vs-LSTM into the result).
 
 PIPELINE POSITION:
-  Run AFTER script2_two_stream_model_v5.py  → two_stream_models.pt
-                                            → eval_split.json
-        AFTER script5_xgboost_bootstrap_shap.py → xgb_adapted_*.pkl
+  Run AFTER script2_two_stream_model.py  → two_stream_models.pt  (source, Run B)
+                                         → temp_run_c_weights.pt (Run C)
+                                         → eval_split.json
+  (Run C weights are also available inside full_adapt_models.pt["run_c"]
+   if script3_run_d_single_stream.py has been run; this script prefers that
+   file and falls back to temp_run_c_weights.pt.)
   Outputs:
     pubmed_corpus.json
     pubmed_rag_stability.json
     pubmed_rag_headtohead.json
     pubmed_rag_explanations.json
+    pubmed_rag_summary.json
 
 DESIGN PRINCIPLES — NO HARDCODING:
   1. Corpus is fetched once under a broad, pre-defined ICU/critical-care
      MeSH umbrella, independent of any patient or model. No targeted
      sub-queries, no relevance labels designed to favour any vocabulary.
 
-  2. Queries are built directly from IG/SHAP feature names (MIMIC column
+  2. Queries are built directly from IG feature names (MIMIC column
      names, string-normalized only — underscores→spaces, drop obs/flag
      suffixes). No vocabulary translation tables.
 
@@ -33,21 +50,27 @@ DESIGN PRINCIPLES — NO HARDCODING:
      Jaccard / Spearman-rank-correlation of post-drift queries against
      the source-model query, separately for physio and treatment streams.
 
-  5. XGBoost comparison uses the same automatic pipeline (SHAP → feature
-     names → query), just without a stream split.
+  5. Run C comparison uses the IDENTICAL two-stream pipeline (IG → feature
+     names → physio/treat sub-queries). The only difference from Run B is
+     that Run C's physiology LSTM was unfrozen during adaptation, so its
+     physiology attributions — and therefore its physiology sub-queries —
+     are free to move away from the source model.
 
   6. Attribution delta → retrieval divergence correlation links the
      biological-stability result (fig script) to retrieval behaviour.
 
 MAIN CLAIMS SUPPORTED:
-  • Run B physiology-stream queries remain stable across drift
-    (Jaccard_physio(source, RunB) >> Jaccard_physio(source, XGB))
-  • Treatment-stream queries show expected moderate divergence in Run B
-    (adaptive MLP) and larger divergence in XGBoost
-  • Attribution delta magnitude predicts retrieval divergence (r = ...)
-  • Two-stream retrieval directly mirrors the frozen/adaptive architecture
+  • Run B physiology-stream queries remain more stable across drift
+    (Jaccard_physio(source, RunB) >= Jaccard_physio(source, RunC)) because
+    the frozen LSTM keeps physiology attributions anchored to the source.
+  • Run C physiology queries diverge more: full adaptation updates the
+    physiology LSTM weights, so its physiology attributions genuinely move.
+  • Treatment-stream queries show comparable, moderate divergence in both
+    runs (both adapt the treatment/fusion path).
+  • Attribution delta magnitude predicts retrieval divergence, and does so
+    more strongly for Run C than for Run B.
 
-Dependencies: pip install sentence-transformers biopython
+Dependencies: pip install sentence-transformers biopython transformers
 """
 
 import json, time, warnings, os, re, copy
@@ -56,8 +79,6 @@ from collections import defaultdict
 import numpy as np
 import polars as pl
 import torch
-import joblib
-import shap as shap_lib
 import math, csv
 warnings.filterwarnings("ignore")
 
@@ -77,12 +98,13 @@ print(f"Device: {device}")
 # CONFIG
 # ══════════════════════════════════════════════════════════════════════════════
 
-TP_THRESHOLD = 0.5 
+TP_THRESHOLD = 0.5
 SEED               = 42
 SEQ_LEN            = 6
 TOP_K_PHYSIO       = 5    # top physio features → physio sub-query
 TOP_K_TREAT        = 4    # top treat features  → treatment sub-query
-TOP_K_DOCS         = 5    # documents retrieved per query
+TOP_K_DOCS         = 5    # documents retrieved per query (primary, unchanged)
+SWEEP_DEPTH        = 20   # ranked depth recorded per case for the k-sweep
 N_CASES_PER_LABEL  = 100  # patients per label for evaluation
 IG_STEPS           = 20
 # ── Embedding backend ─────────────────────────────────────────────────────────
@@ -91,8 +113,9 @@ MINILM_MODEL       = "sentence-transformers/all-MiniLM-L6-v2"
 MEDCPT_USE_COSINE  = True              # True = L2-normalize (cosine); False = raw dot product
 
 REQUESTS_PER_SEC   = 3    # 10 with NCBI_API_KEY, else 3
-BASE_PATH          = Path("/kaggle/input/datasets/fatematamanna/allnew")
-SAVE_PATH          = Path("/kaggle/working")
+import os
+BASE_PATH          = Path(os.environ.get("DATA_DIR", "/home/tamanna/Downloads/paper"))
+SAVE_PATH          = Path(os.environ.get("OUT_DIR", "/home/tamanna/Documents/try3"))
 
 torch.manual_seed(SEED)
 np.random.seed(SEED)
@@ -105,7 +128,6 @@ _DROP_SUFFIXES = ("_obs", "_flag", "_mask", "_ml", "_hrs", "_first",
                   "_last", "_invasive", "_noninvasive")
 _DROP_PREFIXES = ("has_", "early_", "high_", "max_", "min_",
                   "mean_", "std_", "last_", "total_")
-_STAT_PREFIXES = ("last_", "mean_", "std_", "min_", "max_")   # XGB flattened names
 
 MESH_RELEVANCE = {
     "label_vasopressor":  {"vasoconstrictor agents"},
@@ -115,7 +137,7 @@ MESH_RELEVANCE = {
 
 def normalise_feature_name(raw: str) -> str:
     name = raw.split(":")[-1]
-    # Strip stat prefixes (XGB flattened)
+    # Strip stat prefixes (defensive — Run B/C IG names carry none)
     name = re.sub(r'^(last|mean|std|min|max)_', '', name)
     # Strip rolling-window suffixes
     name = re.sub(r'_?roll(mean|std|min|max|sum)_?\d*', '', name)
@@ -202,8 +224,6 @@ def _fetch_batch(pmids: list) -> list:
                 if ln is not None:
                     first_au = ln.text + (f" {ini.text}" if ini is not None else "")
             jrnl_el  = article.find(".//Journal/Title")
-            # MeSH terms for automatic domain tagging
-            mesh_el  = medline.find(".//MeshHeadingList")
             # MeSH terms — DescriptorName sits one level under each MeshHeading
             mesh = [d.text for d in medline.findall(".//MeshHeading/DescriptorName")
                     if d.text]
@@ -284,9 +304,32 @@ model_B = TwoStreamModel(seq_dim, treat_dim, n_targets).to(device)
 model_B.load_state_dict(ckpt["run_b"])
 model_B.eval()
 
-print(f"✅ Models loaded: seq={seq_dim} treat={treat_dim} targets={n_targets}")
+# Run C  — full adaptation (nothing frozen), same architecture as Run B.
+# Prefer full_adapt_models.pt (written by script3); fall back to the
+# temp_run_c_weights.pt that script2 saves.
+_run_c_full = SAVE_PATH / "full_adapt_models.pt"
+_run_c_temp = SAVE_PATH / "temp_run_c_weights.pt"
+if _run_c_full.exists():
+    run_c_state = torch.load(_run_c_full, map_location=device,
+                             weights_only=False)["run_c"]
+    print(f"✅ Run C weights loaded from {_run_c_full.name}")
+elif _run_c_temp.exists():
+    run_c_state = torch.load(_run_c_temp, map_location=device,
+                             weights_only=False)
+    print(f"✅ Run C weights loaded from {_run_c_temp.name}")
+else:
+    raise FileNotFoundError(
+        "Could not find Run C weights. Expected full_adapt_models.pt "
+        "(from script3) or temp_run_c_weights.pt (from script2).")
 
-# Data — same pipeline as script5
+model_C = TwoStreamModel(seq_dim, treat_dim, n_targets).to(device)
+model_C.load_state_dict(run_c_state)
+model_C.eval()
+
+print(f"✅ Models loaded: seq={seq_dim} treat={treat_dim} targets={n_targets}")
+print(f"   (source, Run B [physio frozen], Run C [full adaptation])")
+
+# Data — same pipeline as script2
 LEAKAGE_TIMING_FEATS    = ["time_to_first_abx_order_hrs"]
 SENTINEL_NO_EARLY_EVENT = float(SEQ_LEN + 1)
 _DROP_COLS              = ["vasopressor_flag", "ventilation_flag"]
@@ -309,21 +352,6 @@ ds_post = ICUDataset(eval_post_df, SEQ_FEATURES, TREATMENT_FEATURES, LABEL_COLS,
 ds_pre  = ICUDataset(test_pre,     SEQ_FEATURES, TREATMENT_FEATURES, LABEL_COLS, SEQ_LEN)
 print(f"✅ Data | pre={len(ds_pre)} post={len(ds_post)} patients")
 
-# XGBoost adapted models
-xgb_adapted = {}
-for lbl in LABEL_COLS:
-    p = SAVE_PATH / f"xgb_adapted_{lbl}.pkl"
-    if not p.exists():
-        raise FileNotFoundError(f"{p} not found — run script5 first.")
-    xgb_adapted[lbl] = joblib.load(p)
-print(f"✅ XGBoost adapted models loaded for {len(xgb_adapted)} labels")
-
-xgb_explainers = {
-    lbl: shap_lib.TreeExplainer(model)
-    for lbl, model in xgb_adapted.items()
-}
-print(f"✅ XGBoost TreeExplainers cached for {len(xgb_explainers)} labels")
-
 
 # Derive corpus window from drift_tag automatically
 # drift_tag format: "YYYY - YYYY" or "YYYY" or "YYYY-YYYY"
@@ -340,7 +368,11 @@ print(f"✅ Corpus window derived from drift_tag='{drift_tag}': "
 # INTEGRATED GRADIENTS  (identical to script2 / fig)
 # ══════════════════════════════════════════════════════════════════════════════
 def integrated_gradients(model, xs, xt, target_idx, steps=IG_STEPS):
-    model.train()                          # ← changed from model.eval()
+    # Deterministic IG: eval mode disables dropout. cuDNN cannot backprop through
+    # an LSTM in eval mode on GPU ("cudnn RNN backward can only be called in
+    # training mode"), so cuDNN is disabled rather than switching to train().
+    torch.backends.cudnn.enabled = False
+    model.eval()
     xs, xt   = xs.to(device), xt.to(device)
     bs, bt   = torch.zeros_like(xs), torch.zeros_like(xt)
     sg, tg   = torch.zeros_like(xs), torch.zeros_like(xt)
@@ -351,7 +383,6 @@ def integrated_gradients(model, xs, xt, target_idx, steps=IG_STEPS):
             out = model(is_, it_)[:, target_idx].sum()
             g1, g2 = torch.autograd.grad(out, [is_, it_])
             sg += g1;  tg += g2
-    model.eval()                           # ← restore eval mode after
     seq_attr   = ((xs - bs) * sg / steps).cpu().numpy()
     treat_attr = ((xt - bt) * tg / steps).cpu().numpy()
     return seq_attr, treat_attr
@@ -392,70 +423,6 @@ def explain_two_stream(model, xs, xt, label_idx, seq_cols, treat_cols):
                                 key=lambda x: x["abs_contribution"],
                                 reverse=True),
     }
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# XGB FLATTEN + SHAP  (mirrors script5 exactly)
-# ══════════════════════════════════════════════════════════════════════════════
-_STAT_PFX_RE = re.compile(r"^(last|mean|std|min|max)_(.+)$")
-_TREAT_SET   = set(TREATMENT_FEATURES)
-
-
-def flatten_for_xgb(df, seq_len=SEQ_LEN):
-    seq_cols   = [c for c in SEQ_FEATURES   if c in df.columns and not c.endswith("_mask")]
-    treat_cols = [c for c in TREATMENT_FEATURES if c in df.columns]
-    stays      = df.sort(["stay_id", "hrs_from_admit"])
-    stay_ids   = stays.select("stay_id").unique().sort("stay_id")["stay_id"].to_list()
-    rows, labels_ = [], []
-    for sid in stay_ids:
-        s  = stays.filter(pl.col("stay_id") == sid)
-        sv = s.select(seq_cols).to_numpy().astype(np.float32)
-        if sv.shape[0] < seq_len:
-            sv = np.vstack([sv, np.zeros((seq_len - sv.shape[0], sv.shape[1]), np.float32)])
-        else:
-            sv = sv[:seq_len]
-        rows.append(np.concatenate([
-            sv[-1], sv.mean(0), sv.std(0), sv.min(0), sv.max(0),
-            np.array(s.select(treat_cols).row(0), dtype=np.float32),
-        ]))
-        labels_.append(np.array(s.select(LABEL_COLS).row(0), dtype=np.float32))
-    names = []
-    for pfx in ["last", "mean", "std", "min", "max"]:
-        names += [f"{pfx}_{c}" for c in seq_cols]
-    names += treat_cols
-    X = np.stack(rows);  X[~np.isfinite(X)] = 0.0
-    return X, np.stack(labels_), stay_ids, names
-
-
-def explain_xgb(explainer, xgb_model, x_row, feat_names):
-    shap_vals  = explainer.shap_values(x_row.reshape(1, -1))[0]
-    prob       = float(xgb_model.predict_proba(x_row.reshape(1, -1))[0, 1])
-    max_abs    = max(abs(float(v)) for v in shap_vals) if len(shap_vals) else 1e-9
-
-    physio_feats, treat_feats = [], []
-    for name, val in zip(feat_names, shap_vals):
-        m    = _STAT_PFX_RE.match(name)
-        base = m.group(2) if m else name
-        stream = "treat" if base in _TREAT_SET else "physio"
-        entry = {
-            "feature":          f"{stream}:{name}",
-            "raw_name":         name,
-            "base_name":        base,
-            "contribution":     float(val),
-            "abs_contribution": abs(float(val)),
-            "stream":           stream,
-        }
-        if stream == "physio":
-            physio_feats.append(entry)
-        else:
-            treat_feats.append(entry)
-
-    physio_feats.sort(key=lambda x: x["abs_contribution"], reverse=True)
-    treat_feats.sort( key=lambda x: x["abs_contribution"], reverse=True)
-    all_feats = sorted(physio_feats + treat_feats,
-                       key=lambda x: x["abs_contribution"], reverse=True)
-    return {"prob": prob, "physio_feats": physio_feats,
-            "treat_feats": treat_feats, "all_feats": all_feats}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -520,7 +487,10 @@ def build_two_stream_queries(exp: dict, label_col: str) -> dict:
 # FETCH CORPUS (once, then cache)
 # ══════════════════════════════════════════════════════════════════════════════
 corpus_path = SAVE_PATH / "pubmed_corpus.json"
-corpus_path.unlink(missing_ok=True)
+# NOTE: corpus is cached after the first fetch. The first run pulls it live
+# from PubMed and saves pubmed_corpus.json; later runs reuse that file so the
+# corpus stays fixed and Run B / Run C numbers are reproducible across re-runs.
+# To force a fresh fetch, delete pubmed_corpus.json before running.
 if corpus_path.exists():
     print(f"\nLoading cached corpus from {corpus_path}")
     with open(corpus_path) as f:
@@ -547,8 +517,6 @@ print("\n" + "="*70)
 print("Building semantic index")
 print("="*70)
 
-# embedder = SentenceTransformer(EMBEDDING_MODEL, device=str(device))
-
 corpus_entries = []
 for a in corpus_raw:
     text = f"{a['title']}. {a['abstract']}"[:2000]
@@ -556,18 +524,11 @@ for a in corpus_raw:
         "pmid":   a["pmid"],
         "title":  a["title"],
         "text":   a["abstract"],
-        "mesh":   a.get("mesh", []),    # ← add this
+        "mesh":   a.get("mesh", []),
         "source": f"{a['first_author']} et al. {a['journal']} {a['year']}",
         "year":   a["year"],
         "text_for_embedding": text,
     })
-# print(f"Embedding {len(corpus_entries)} passages...")
-# corpus_embeddings = embedder.encode(
-#     [e["text_for_embedding"] for e in corpus_entries],
-#     convert_to_numpy=True, show_progress_bar=True,
-#     batch_size=32, normalize_embeddings=True,
-# )
-# print(f"  Shape: {corpus_embeddings.shape}")
 
 class Retriever:
     """
@@ -642,14 +603,6 @@ print(f"  Shape: {corpus_embeddings.shape}")
 # ══════════════════════════════════════════════════════════════════════════════
 # RETRIEVAL FUNCTIONS
 # ══════════════════════════════════════════════════════════════════════════════
-# def retrieve(query: str, k: int = TOP_K_DOCS) -> list:
-#     """Retrieve top-k documents by cosine similarity."""
-#     q_emb = embedder.encode([query], convert_to_numpy=True,
-#                              normalize_embeddings=True)
-#     sims  = (corpus_embeddings @ q_emb.T).ravel()
-#     order = np.argsort(sims)[::-1][:k * 4]   # over-fetch for two-stream merge
-#     return [(int(i), float(sims[i])) for i in order[:k]]
-
 def retrieve(query: str, k: int = TOP_K_DOCS) -> list:
     """Retrieve top-k documents by similarity."""
     q_emb = retriever.encode_query(query)
@@ -678,9 +631,14 @@ def retrieve_two_stream(queries: dict, k: int = TOP_K_DOCS) -> dict:
             if len(results) >= n:
                 break
         return results
-    
-    p_hits = _hits(queries["physio_query"], k)
-    t_hits = _hits(queries["treat_query"],  k)
+
+    # Retrieve once at SWEEP_DEPTH. _hits() truncates a fully sorted order, so
+    # _hits(q, depth)[:k] is identical to _hits(q, k); the k=5 metrics below are
+    # therefore bit-identical to the pre-sweep version of this script.
+    p_deep = _hits(queries["physio_query"], max(k, SWEEP_DEPTH))
+    t_deep = _hits(queries["treat_query"],  max(k, SWEEP_DEPTH))
+    p_hits = p_deep[:k]
+    t_hits = t_deep[:k]
 
     # Merge: union by PMID, keep max sim
     best = {}
@@ -694,6 +652,10 @@ def retrieve_two_stream(queries: dict, k: int = TOP_K_DOCS) -> dict:
         "physio_hits": p_hits,
         "treat_hits":  t_hits,
         "merged_hits": merged,
+        # (pmid, sim) ranked to SWEEP_DEPTH; lets script14 recompute Jaccard/RBO
+        # at any k <= SWEEP_DEPTH with no further retrieval.
+        "physio_ranked": [(h["pmid"], float(h["sim"])) for h in p_deep],
+        "treat_ranked":  [(h["pmid"], float(h["sim"])) for h in t_deep],
     }
 
 
@@ -724,15 +686,6 @@ def rank_correlation(hits_a: list, hits_b: list) -> float:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# FLATTEN POST-DRIFT DATA FOR XGB (once)
-# ══════════════════════════════════════════════════════════════════════════════
-print("\nFlattening post-drift data for XGBoost...")
-X_post, Y_post, xgb_stay_order, xgb_feat_names = flatten_for_xgb(eval_post_df)
-xgb_sid_to_idx = {sid: i for i, sid in enumerate(xgb_stay_order)}
-print(f"  XGBoost feature matrix: {X_post.shape}")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
 # CASE SELECTION
 # ══════════════════════════════════════════════════════════════════════════════
 def select_cases(ds, label_idx, n=N_CASES_PER_LABEL):
@@ -750,19 +703,21 @@ def select_cases(ds, label_idx, n=N_CASES_PER_LABEL):
 #
 # For each post-drift patient × label:
 #   SOURCE query  — run source model weights on this post-drift patient
-#   RUN B  query  — run adapted Run B weights on same patient
-#   XGB    query  — run XGBoost SHAP on same patient
+#   RUN B  query  — run adapted Run B weights (physio frozen) on same patient
+#   RUN C  query  — run adapted Run C weights (full adaptation) on same patient
 #
-# Stability = how similar are Run B / XGB queries to the source query?
-# Hypothesis: Run B ≈ Source (frozen physiology → stable attributions)
-#             XGB  ≠ Source (biological amnesia → shifted attributions)
+# Stability = how similar are Run B / Run C queries to the source query?
+# Hypothesis: Run B ≈ Source (frozen physiology → stable attributions →
+#                             stable physiology retrieval)
+#             Run C ≠ Source (physiology LSTM adapted → attributions move →
+#                             physiology retrieval drifts further)
 # ══════════════════════════════════════════════════════════════════════════════
 print("\n" + "="*70)
-print("Running retrieval stability evaluation")
+print("Running retrieval stability evaluation  (Run B vs Run C vs Source)")
 print("="*70)
 
 all_cases       = []   # one dict per (stay_id, label)
-explanations    = {"source": [], "run_b": [], "xgb": []}
+explanations    = {"source": [], "run_b": [], "run_c": []}
 
 for li, ln in enumerate(LABEL_COLS):
     cases = select_cases(ds_post, li)
@@ -782,82 +737,67 @@ for li, ln in enumerate(LABEL_COLS):
         q_src    = build_two_stream_queries(exp_src, ln)
         ret_src  = retrieve_two_stream(q_src)
 
-        # ── RUN B on same patient ─────────────────────────────────────────
+        # ── RUN B on same patient (physiology frozen) ─────────────────────
         exp_b    = explain_two_stream(
             model_B, xs, xt, li, ds_post.seq_cols, ds_post.treat_cols)
         q_b      = build_two_stream_queries(exp_b, ln)
         ret_b    = retrieve_two_stream(q_b)
 
-        # ── XGB on same patient ───────────────────────────────────────────
-        if stay_id not in xgb_sid_to_idx:
-            print(f"    ⚠ {stay_id} not in XGB matrix — skip")
-            continue
-        xgb_row  = X_post[xgb_sid_to_idx[stay_id]]
-        exp_xgb  = explain_xgb(xgb_explainers[ln], xgb_adapted[ln],
-                        xgb_row, xgb_feat_names)
-        # XGB has no stream split — use all features for one query, but
-        # split the stored features by stream tag for attribution mass stats
-
-        q_xgb_physio = build_query(exp_xgb["physio_feats"], ln, TOP_K_PHYSIO)
-        q_xgb_treat  = build_query(exp_xgb["treat_feats"],  ln, TOP_K_TREAT)
-        treat_terms   = " ".join(
-            normalise_feature_name(f["feature"])
-            for f in exp_xgb["treat_feats"][:TOP_K_TREAT]
-            if normalise_feature_name(f["feature"])
-        )
-        q_xgb = {
-            "physio_query":   q_xgb_physio,
-            "treat_query":    q_xgb_treat,
-            "combined_query": f"{q_xgb_physio} {treat_terms}".strip(),
-        }
-        # Keep q_xgb_str for sample printout (combined)
-        q_xgb_str = q_xgb["combined_query"]
-        
-        ret_xgb   = retrieve_two_stream(q_xgb)
+        # ── RUN C on same patient (full adaptation) ───────────────────────
+        # Identical two-stream pipeline as Run B — the ONLY difference is
+        # the weights (Run C unfroze the physiology LSTM during adaptation).
+        exp_c    = explain_two_stream(
+            model_C, xs, xt, li, ds_post.seq_cols, ds_post.treat_cols)
+        q_c      = build_two_stream_queries(exp_c, ln)
+        ret_c    = retrieve_two_stream(q_c)
+        q_c_str  = q_c["combined_query"]
 
         # ══ STABILITY METRICS ════════════════════════════════════════════
         # -- Physiology stream --
         src_physio_pmids = pmid_set(ret_src["physio_hits"])
         b_physio_pmids   = pmid_set(ret_b["physio_hits"])
-        xgb_physio_pmids = pmid_set(ret_xgb["physio_hits"])
+        c_physio_pmids   = pmid_set(ret_c["physio_hits"])
 
         jacc_physio_b    = jaccard(src_physio_pmids, b_physio_pmids)
-        jacc_physio_xgb  = jaccard(src_physio_pmids, xgb_physio_pmids)
+        jacc_physio_c    = jaccard(src_physio_pmids, c_physio_pmids)
         rho_physio_b     = rank_correlation(ret_src["physio_hits"],
                                              ret_b["physio_hits"])
-        rho_physio_xgb   = rank_correlation(ret_src["physio_hits"],
-                                             ret_xgb["physio_hits"])
+        rho_physio_c     = rank_correlation(ret_src["physio_hits"],
+                                             ret_c["physio_hits"])
 
         # -- Treatment stream --
         src_treat_pmids  = pmid_set(ret_src["treat_hits"])
         b_treat_pmids    = pmid_set(ret_b["treat_hits"])
-        xgb_treat_pmids  = pmid_set(ret_xgb["treat_hits"])
+        c_treat_pmids    = pmid_set(ret_c["treat_hits"])
 
         jacc_treat_b     = jaccard(src_treat_pmids, b_treat_pmids)
-        jacc_treat_xgb   = jaccard(src_treat_pmids, xgb_treat_pmids)
+        jacc_treat_c     = jaccard(src_treat_pmids, c_treat_pmids)
         rho_treat_b      = rank_correlation(ret_src["treat_hits"],
                                              ret_b["treat_hits"])
-        rho_treat_xgb    = rank_correlation(ret_src["treat_hits"],
-                                             ret_xgb["treat_hits"])
+        rho_treat_c      = rank_correlation(ret_src["treat_hits"],
+                                             ret_c["treat_hits"])
 
         # -- Merged (overall) --
         jacc_merged_b    = jaccard(pmid_set(ret_src["merged_hits"]),
                                    pmid_set(ret_b["merged_hits"]))
-        jacc_merged_xgb  = jaccard(pmid_set(ret_src["merged_hits"]),
-                                   pmid_set(ret_xgb["merged_hits"]))
+        jacc_merged_c    = jaccard(pmid_set(ret_src["merged_hits"]),
+                                   pmid_set(ret_c["merged_hits"]))
 
         # -- Attribution mass per stream (for delta-divergence correlation) --
         src_physio_mass  = np.mean([f["abs_contribution"]
                                     for f in exp_src["physio_feats"]])
         b_physio_mass    = np.mean([f["abs_contribution"]
                                     for f in exp_b["physio_feats"]])
-        xgb_physio_mass  = np.mean([f["abs_contribution"]
-                                    for f in exp_xgb["physio_feats"]])
+        c_physio_mass    = np.mean([f["abs_contribution"]
+                                    for f in exp_c["physio_feats"]])
 
         # Attribution delta: |mean(Run B physio) − mean(Source physio)|
-        # and same for XGB — this is the per-patient attribution shift
-        physio_delta_b   = abs(b_physio_mass   - src_physio_mass)
-        physio_delta_xgb = abs(xgb_physio_mass - src_physio_mass)
+        # and same for Run C — this is the per-patient attribution shift.
+        # For Run B the physiology LSTM is frozen, so hphys is numerically
+        # identical to source; any delta comes from the fusion head reading
+        # back through IG. For Run C the LSTM itself moved.
+        physio_delta_b   = abs(b_physio_mass - src_physio_mass)
+        physio_delta_c   = abs(c_physio_mass - src_physio_mass)
 
         # Query-level token overlap (automatic — no manual terms)
         def _token_jaccard(qa, qb):
@@ -867,12 +807,12 @@ for li, ln in enumerate(LABEL_COLS):
 
         q_jacc_physio_b   = _token_jaccard(q_src["physio_query"],
                                             q_b["physio_query"])
-        q_jacc_physio_xgb = _token_jaccard(q_src["physio_query"],
-                                            q_xgb["physio_query"])
+        q_jacc_physio_c   = _token_jaccard(q_src["physio_query"],
+                                            q_c["physio_query"])
         q_jacc_treat_b    = _token_jaccard(q_src["treat_query"],
                                             q_b["treat_query"])
-        q_jacc_treat_xgb  = _token_jaccard(q_src["treat_query"],
-                                            q_xgb["treat_query"])
+        q_jacc_treat_c    = _token_jaccard(q_src["treat_query"],
+                                            q_c["treat_query"])
 
         case_record = {
             # Identity
@@ -882,45 +822,49 @@ for li, ln in enumerate(LABEL_COLS):
             # Probabilities
             "prob_src":   exp_src["prob"],
             "prob_b":     exp_b["prob"],
-            "prob_xgb":   exp_xgb["prob"],
+            "prob_c":     exp_c["prob"],
             # Queries
             "q_src_physio":  q_src["physio_query"],
             "q_src_treat":   q_src["treat_query"],
             "q_b_physio":    q_b["physio_query"],
             "q_b_treat":     q_b["treat_query"],
-            "q_xgb":         q_xgb_str,
+            "q_c_physio":    q_c["physio_query"],
+            "q_c_treat":     q_c["treat_query"],
+            "q_c":           q_c_str,
             # Document Jaccard — PHYSIOLOGY stream
             "jacc_physio_b":   jacc_physio_b,
-            "jacc_physio_xgb": jacc_physio_xgb,
+            "jacc_physio_c":   jacc_physio_c,
             # Document Jaccard — TREATMENT stream
             "jacc_treat_b":    jacc_treat_b,
-            "jacc_treat_xgb":  jacc_treat_xgb,
+            "jacc_treat_c":    jacc_treat_c,
             # Document Jaccard — MERGED
             "jacc_merged_b":   jacc_merged_b,
-            "jacc_merged_xgb": jacc_merged_xgb,
+            "jacc_merged_c":   jacc_merged_c,
             # Rank correlation
             "rho_physio_b":    rho_physio_b,
-            "rho_physio_xgb":  rho_physio_xgb,
+            "rho_physio_c":    rho_physio_c,
             "rho_treat_b":     rho_treat_b,
-            "rho_treat_xgb":   rho_treat_xgb,
+            "rho_treat_c":     rho_treat_c,
             # Attribution mass & delta
             "src_physio_mass":   float(src_physio_mass),
             "b_physio_mass":     float(b_physio_mass),
-            "xgb_physio_mass":   float(xgb_physio_mass),
+            "c_physio_mass":     float(c_physio_mass),
             "physio_delta_b":    float(physio_delta_b),
-            "physio_delta_xgb":  float(physio_delta_xgb),
+            "physio_delta_c":    float(physio_delta_c),
             # Query token Jaccard
             "q_jacc_physio_b":   q_jacc_physio_b,
-            "q_jacc_physio_xgb": q_jacc_physio_xgb,
+            "q_jacc_physio_c":   q_jacc_physio_c,
             "q_jacc_treat_b":    q_jacc_treat_b,
-            "q_jacc_treat_xgb":  q_jacc_treat_xgb,
+            "q_jacc_treat_c":    q_jacc_treat_c,
         }
         all_cases.append(case_record)
 
-        # Store explanations for qualitative inspection
+        # Store explanations for qualitative inspection — Run B and Run C are
+        # structurally identical (both two-stream), so they store identically.
         for tag, exp, q, ret in [
             ("source", exp_src, q_src, ret_src),
             ("run_b",  exp_b,   q_b,   ret_b),
+            ("run_c",  exp_c,   q_c,   ret_c),
         ]:
             explanations[tag].append({
                 "stay_id": stay_id, "label": ln, "true_label": true_lbl,
@@ -929,17 +873,20 @@ for li, ln in enumerate(LABEL_COLS):
                 "treat_query":  q["treat_query"],
                 "top_physio":   exp["physio_feats"][:TOP_K_PHYSIO],
                 "top_treat":    exp["treat_feats"][:TOP_K_TREAT],
+                # Full signed attribution vectors, keyed by feature name, so that
+                # source-vs-adapted attribution similarity can be computed with the
+                # standard metrics (rank correlation, top-k intersection) rather
+                # than through the query-token proxy.
+                "attr_physio":  {f["raw_name"]: f["contribution"]
+                                 for f in exp["physio_feats"]},
+                "attr_treat":   {f["raw_name"]: f["contribution"]
+                                 for f in exp["treat_feats"]},
                 "physio_hits":  ret["physio_hits"],
                 "treat_hits":   ret["treat_hits"],
                 "merged_hits":  ret["merged_hits"],
+                "physio_ranked": ret["physio_ranked"],
+                "treat_ranked":  ret["treat_ranked"],
             })
-        explanations["xgb"].append({
-            "stay_id": stay_id, "label": ln, "true_label": true_lbl,
-            "prob":    exp_xgb["prob"],
-            "query":   q_xgb_str,
-            "top_feats": exp_xgb["all_feats"][:TOP_K_PHYSIO + TOP_K_TREAT],
-            "merged_hits": ret_xgb["merged_hits"],
-        })
 
 print(f"\n✅ Processed {len(all_cases)} cases")
 
@@ -962,58 +909,59 @@ print("="*70)
 
 # Overall
 print("\n── Overall (all labels, all patients) ──────────────────────────────")
-print(f"\n{'Metric':<38} {'Run B vs Source':>16} {'XGB vs Source':>14}")
-print("─"*70)
-for metric, key_b, key_xgb in [
-    ("Jaccard (physio stream)",       "jacc_physio_b",   "jacc_physio_xgb"),
-    ("Jaccard (treatment stream)",    "jacc_treat_b",    "jacc_treat_xgb"),
-    ("Jaccard (merged)",              "jacc_merged_b",   "jacc_merged_xgb"),
-    ("Rank corr (physio)",            "rho_physio_b",    "rho_physio_xgb"),
-    ("Rank corr (treatment)",         "rho_treat_b",     "rho_treat_xgb"),
-    ("Query token Jaccard (physio)",  "q_jacc_physio_b", "q_jacc_physio_xgb"),
-    ("Query token Jaccard (treat)",   "q_jacc_treat_b",  "q_jacc_treat_xgb"),
+print(f"\n{'Metric':<38} {'Run B vs Source':>16} {'Run C vs Source':>16}")
+print("─"*72)
+for metric, key_b, key_c in [
+    ("Jaccard (physio stream)",       "jacc_physio_b",   "jacc_physio_c"),
+    ("Jaccard (treatment stream)",    "jacc_treat_b",    "jacc_treat_c"),
+    ("Jaccard (merged)",              "jacc_merged_b",   "jacc_merged_c"),
+    ("Rank corr (physio)",            "rho_physio_b",    "rho_physio_c"),
+    ("Rank corr (treatment)",         "rho_treat_b",     "rho_treat_c"),
+    ("Query token Jaccard (physio)",  "q_jacc_physio_b", "q_jacc_physio_c"),
+    ("Query token Jaccard (treat)",   "q_jacc_treat_b",  "q_jacc_treat_c"),
 ]:
-    vb  = _mean([c[key_b]   for c in all_cases])
-    vx  = _mean([c[key_xgb] for c in all_cases])
-    vx_str = f"{vx:>12.3f}" if not np.isnan(vx) else "       N/A*"
-    print(f"  {metric:<36} {vb:>14.3f}   {vx_str}")
+    vb  = _mean([c[key_b] for c in all_cases])
+    vc  = _mean([c[key_c] for c in all_cases])
+    vc_str = f"{vc:>14.3f}" if not np.isnan(vc) else "         N/A*"
+    print(f"  {metric:<36} {vb:>14.3f}   {vc_str}")
 
 
-# Disclosure: NaN-biased rho for XGB
-rho_xgb_vals  = [c["rho_physio_xgb"] for c in all_cases]
-rho_xgb_valid = [v for v in rho_xgb_vals if not np.isnan(v)]
-rho_b_vals    = [c["rho_physio_b"]   for c in all_cases]
+# Disclosure: NaN-biased rho (fewer-than-3-overlap cases excluded)
+rho_c_vals    = [c["rho_physio_c"] for c in all_cases]
+rho_c_valid   = [v for v in rho_c_vals if not np.isnan(v)]
+rho_b_vals    = [c["rho_physio_b"] for c in all_cases]
 rho_b_valid   = [v for v in rho_b_vals if not np.isnan(v)]
 print(f"\n  NOTE — rank correlation NaN disclosure:")
-print(f"  Run B:    computed on {len(rho_b_valid)}/{len(rho_b_vals)} cases")
-print(f"  XGBoost:  computed on {len(rho_xgb_valid)}/{len(rho_xgb_vals)} cases "
-      f"(upward-biased — NaN cases are those with zero PMID overlap, "
-      f"i.e. the most divergent cases, which are excluded)")
+print(f"  Run B:  computed on {len(rho_b_valid)}/{len(rho_b_vals)} cases")
+print(f"  Run C:  computed on {len(rho_c_valid)}/{len(rho_c_vals)} cases "
+      f"(a smaller valid count means Run C more often has <3 shared PMIDs "
+      f"with the source, i.e. it diverges more; the reported rho is "
+      f"upward-biased because those most-divergent cases are excluded)")
 
 # Per-label breakdown
 print("\n── Per-label breakdown ─────────────────────────────────────────────")
-print(f"\n  {'Label':<22} {'Jacc-P(B)':>10} {'Jacc-P(X)':>10} "
-      f"{'Jacc-T(B)':>10} {'Jacc-T(X)':>10} {'n':>5}")
+print(f"\n  {'Label':<22} {'Jacc-P(B)':>10} {'Jacc-P(C)':>10} "
+      f"{'Jacc-T(B)':>10} {'Jacc-T(C)':>10} {'n':>5}")
 print("  " + "─"*67)
 for ln in LABEL_COLS:
     sub = [c for c in all_cases if c["label"] == ln]
     if not sub: continue
-    jp_b  = _mean([c["jacc_physio_b"]   for c in sub])
-    jp_x  = _mean([c["jacc_physio_xgb"] for c in sub])
-    jt_b  = _mean([c["jacc_treat_b"]    for c in sub])
-    jt_x  = _mean([c["jacc_treat_xgb"]  for c in sub])
-    print(f"  {ln:<22} {jp_b:>10.3f} {jp_x:>10.3f} "
-          f"{jt_b:>10.3f} {jt_x:>10.3f} {len(sub):>5}")
+    jp_b  = _mean([c["jacc_physio_b"] for c in sub])
+    jp_c  = _mean([c["jacc_physio_c"] for c in sub])
+    jt_b  = _mean([c["jacc_treat_b"]  for c in sub])
+    jt_c  = _mean([c["jacc_treat_c"]  for c in sub])
+    print(f"  {ln:<22} {jp_b:>10.3f} {jp_c:>10.3f} "
+          f"{jt_b:>10.3f} {jt_c:>10.3f} {len(sub):>5}")
 
 # Attribution mass summary
 print("\n── Attribution mass (physiology stream) ────────────────────────────")
-print(f"  Source mean |IG|:    {_mean([c['src_physio_mass']  for c in all_cases]):.4f}")
-print(f"  Run B mean  |IG|:    {_mean([c['b_physio_mass']    for c in all_cases]):.4f}")
-print(f"  XGB mean   |SHAP|:   {_mean([c['xgb_physio_mass']  for c in all_cases]):.4f}")
-print(f"  Run B physio delta:  {_mean([c['physio_delta_b']   for c in all_cases]):.4f}  "
-      f"(mean |B − Source| per patient)")
-print(f"  XGB  physio delta:   {_mean([c['physio_delta_xgb'] for c in all_cases]):.4f}  "
-      f"(mean |XGB − Source| per patient)")
+print(f"  Source mean |IG|:    {_mean([c['src_physio_mass'] for c in all_cases]):.4f}")
+print(f"  Run B mean  |IG|:    {_mean([c['b_physio_mass']   for c in all_cases]):.4f}")
+print(f"  Run C mean  |IG|:    {_mean([c['c_physio_mass']   for c in all_cases]):.4f}")
+print(f"  Run B physio delta:  {_mean([c['physio_delta_b']  for c in all_cases]):.4f}  "
+      f"(mean |B − Source| per patient — frozen LSTM, residual via head)")
+print(f"  Run C physio delta:  {_mean([c['physio_delta_c']  for c in all_cases]):.4f}  "
+      f"(mean |C − Source| per patient — LSTM itself adapted)")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1023,36 +971,36 @@ print(f"  XGB  physio delta:   {_mean([c['physio_delta_xgb'] for c in all_cases]
 print("\n── Attribution delta → Retrieval divergence (Spearman r) ──────────")
 
 # Jaccard divergence = 1 − Jaccard (higher = more diverged from source)
-div_b_physio   = [1 - c["jacc_physio_b"]   for c in all_cases]
-div_xgb_physio = [1 - c["jacc_physio_xgb"] for c in all_cases]
-delta_b        = [c["physio_delta_b"]       for c in all_cases]
-delta_xgb      = [c["physio_delta_xgb"]     for c in all_cases]
+div_b_physio = [1 - c["jacc_physio_b"] for c in all_cases]
+div_c_physio = [1 - c["jacc_physio_c"] for c in all_cases]
+delta_b      = [c["physio_delta_b"]     for c in all_cases]
+delta_c      = [c["physio_delta_c"]     for c in all_cases]
 
-r_b,   p_b   = spearmanr(delta_b,   div_b_physio)
-r_xgb, p_xgb = spearmanr(delta_xgb, div_xgb_physio)
+r_b, p_b = spearmanr(delta_b, div_b_physio)
+r_c, p_c = spearmanr(delta_c, div_c_physio)
 
-print(f"  Run B:    r={r_b:.3f}  p={p_b:.4f}  "
+print(f"  Run B:  r={r_b:.3f}  p={p_b:.4f}  "
       f"(attribution delta vs physio retrieval divergence)")
-print(f"  XGBoost:  r={r_xgb:.3f}  p={p_xgb:.4f}")
-print(f"  Interpretation: r > 0 means larger attribution shift → more")
-print(f"  divergent document retrieval. Expected stronger for XGBoost")
-print(f"  (biological amnesia) than for Run B (frozen physiology).")
-print(f"  Run B r < 0: frozen LSTM decouples attribution magnitude from")
-print(f"  retrieval — residual delta comes from fusion head, not physio")
-print(f"  features, so retrieval remains anchored to source documents.")
+print(f"  Run C:  r={r_c:.3f}  p={p_c:.4f}")
+print(f"  Interpretation: r > 0 means a larger attribution shift drives more")
+print(f"  divergent document retrieval. Expected stronger/positive for Run C")
+print(f"  (physiology LSTM adapted → attribution shift is real and propagates")
+print(f"  to retrieval) than for Run B (frozen LSTM decouples attribution")
+print(f"  magnitude from retrieval — the residual delta comes from the fusion")
+print(f"  head, not physiology features, so retrieval stays anchored to source).")
 
 
 print(f"\n── Per-label attribution delta → divergence correlation ────────")
 for ln in LABEL_COLS:
     sub = [c for c in all_cases if c["label"] == ln]
-    db  = [c["physio_delta_b"]   for c in sub]
-    dx  = [c["physio_delta_xgb"] for c in sub]
-    div_b  = [1 - c["jacc_physio_b"]   for c in sub]
-    div_x  = [1 - c["jacc_physio_xgb"] for c in sub]
+    db  = [c["physio_delta_b"] for c in sub]
+    dc  = [c["physio_delta_c"] for c in sub]
+    div_b  = [1 - c["jacc_physio_b"] for c in sub]
+    div_c  = [1 - c["jacc_physio_c"] for c in sub]
     rb, pb   = spearmanr(db, div_b)
-    rx, px   = spearmanr(dx, div_x)
+    rc, pc   = spearmanr(dc, div_c)
     print(f"  {ln:<22} RunB r={rb:+.3f} p={pb:.4f} | "
-          f"XGB r={rx:+.3f} p={px:.4f}")
+          f"RunC r={rc:+.3f} p={pc:.4f}")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SAMPLE RETRIEVALS — best true-positive per label
@@ -1106,26 +1054,26 @@ for ln in LABEL_COLS:
     sid     = case["stay_id"]
     src_exp = _lookup_exp(explanations["source"], sid, ln)
     b_exp   = _lookup_exp(explanations["run_b"],  sid, ln)
-    xgb_exp = _lookup_exp(explanations["xgb"],    sid, ln)
+    c_exp   = _lookup_exp(explanations["run_c"],  sid, ln)
 
-    if not (src_exp and b_exp and xgb_exp):
+    if not (src_exp and b_exp and c_exp):
         print(f"\n  ⚠  {ln}: explanations missing for stay {sid} — skipping")
         continue
 
     print(f"\n{'─'*70}")
     print(f"Stay {sid} | {ln} | true={case['true_label']}  {tp_flag}")
     print(f"  Probs: source={case['prob_src']:.3f}  "
-          f"RunB={case['prob_b']:.3f}  XGB={case['prob_xgb']:.3f}")
+          f"RunB={case['prob_b']:.3f}  RunC={case['prob_c']:.3f}")
     print(f"  Physio Jaccard: RunB={case['jacc_physio_b']:.3f}  "
-          f"XGB={case['jacc_physio_xgb']:.3f}  "
-          f"(Δ RunB−XGB={case['jacc_physio_b']-case['jacc_physio_xgb']:+.3f})")
+          f"RunC={case['jacc_physio_c']:.3f}  "
+          f"(Δ RunB−RunC={case['jacc_physio_b']-case['jacc_physio_c']:+.3f})")
     print(f"  Treat  Jaccard: RunB={case['jacc_treat_b']:.3f}  "
-          f"XGB={case['jacc_treat_xgb']:.3f}")
+          f"RunC={case['jacc_treat_c']:.3f}")
     print(f"  Merged Jaccard: RunB={case['jacc_merged_b']:.3f}  "
-          f"XGB={case['jacc_merged_xgb']:.3f}")
+          f"RunC={case['jacc_merged_c']:.3f}")
     print(f"\n  Source physio query:  {case['q_src_physio']}")
     print(f"  Run B  physio query:  {case['q_b_physio']}")
-    print(f"  XGB    query:         {case['q_xgb']}")
+    print(f"  Run C  physio query:  {case['q_c_physio']}")
 
     print(f"\n  Source physio hits:")
     for i, h in enumerate(src_exp["physio_hits"][:5]):
@@ -1141,8 +1089,11 @@ for ln in LABEL_COLS:
     for i, h in enumerate(b_exp["treat_hits"][:5]):
         print(f"    [{i+1}] yr={h['year']} sim={h['sim']:.3f} | {h['title'][:65]}...")
 
-    print(f"\n  XGB    merged hits:")
-    for i, h in enumerate(xgb_exp["merged_hits"][:5]):
+    print(f"\n  Run C  physio hits:")
+    for i, h in enumerate(c_exp["physio_hits"][:5]):
+        print(f"    [{i+1}] yr={h['year']} sim={h['sim']:.3f} | {h['title'][:65]}...")
+    print(f"  Run C  treat  hits:")
+    for i, h in enumerate(c_exp["treat_hits"][:5]):
         print(f"    [{i+1}] yr={h['year']} sim={h['sim']:.3f} | {h['title'][:65]}...")
 
 
@@ -1171,29 +1122,30 @@ summary = {
     "corpus_date_range":    f"{CORPUS_MIN_DATE} – {CORPUS_MAX_DATE}",
     "n_cases":              len(all_cases),
     "embedding_model":      EMBEDDING_BACKEND,
+    "comparison":           "Run B (physio frozen) vs Run C (full adaptation)",
     "query_strategy":       "automatic — normalised MIMIC feature names, no vocabulary tables",
     "two_stream_split":     "physio sub-query (SEQ_FEATURES) + treat sub-query (TREATMENT_FEATURES)",
     # Jaccard stability
-    "mean_jacc_physio_b":   _mean([c["jacc_physio_b"]   for c in all_cases]),
-    "mean_jacc_physio_xgb": _mean([c["jacc_physio_xgb"] for c in all_cases]),
-    "mean_jacc_treat_b":    _mean([c["jacc_treat_b"]    for c in all_cases]),
-    "mean_jacc_treat_xgb":  _mean([c["jacc_treat_xgb"]  for c in all_cases]),
-    "mean_jacc_merged_b":   _mean([c["jacc_merged_b"]   for c in all_cases]),
-    "mean_jacc_merged_xgb": _mean([c["jacc_merged_xgb"] for c in all_cases]),
+    "mean_jacc_physio_b":   _mean([c["jacc_physio_b"] for c in all_cases]),
+    "mean_jacc_physio_c":   _mean([c["jacc_physio_c"] for c in all_cases]),
+    "mean_jacc_treat_b":    _mean([c["jacc_treat_b"]  for c in all_cases]),
+    "mean_jacc_treat_c":    _mean([c["jacc_treat_c"]  for c in all_cases]),
+    "mean_jacc_merged_b":   _mean([c["jacc_merged_b"] for c in all_cases]),
+    "mean_jacc_merged_c":   _mean([c["jacc_merged_c"] for c in all_cases]),
     # Rank correlation
-    "mean_rho_physio_b":    _mean([c["rho_physio_b"]    for c in all_cases]),
-    "mean_rho_physio_xgb":  _mean([c["rho_physio_xgb"]  for c in all_cases]),
+    "mean_rho_physio_b":    _mean([c["rho_physio_b"]  for c in all_cases]),
+    "mean_rho_physio_c":    _mean([c["rho_physio_c"]  for c in all_cases]),
     # Attribution delta → divergence correlation
     "spearman_r_runb":      float(r_b),
     "spearman_p_runb":      float(p_b),
-    "spearman_r_xgb":       float(r_xgb),
-    "spearman_p_xgb":       float(p_xgb),
+    "spearman_r_runc":      float(r_c),
+    "spearman_p_runc":      float(p_c),
     # Attribution mass
-    "mean_physio_delta_b":  _mean([c["physio_delta_b"]  for c in all_cases]),
-    "mean_physio_delta_xgb":_mean([c["physio_delta_xgb"] for c in all_cases]),
-    "rho_physio_xgb_n_valid": len(rho_xgb_valid),
-    "rho_physio_xgb_n_total": len(rho_xgb_vals),
-    "rho_physio_b_n_valid":   len(rho_b_valid),
+    "mean_physio_delta_b":  _mean([c["physio_delta_b"] for c in all_cases]),
+    "mean_physio_delta_c":  _mean([c["physio_delta_c"] for c in all_cases]),
+    "rho_physio_c_n_valid": len(rho_c_valid),
+    "rho_physio_c_n_total": len(rho_c_vals),
+    "rho_physio_b_n_valid": len(rho_b_valid),
 }
 with open(SAVE_PATH / "pubmed_rag_summary.json", "w") as f:
     json.dump(summary, f, indent=2, cls=_NpEncoder)
@@ -1367,19 +1319,21 @@ print()
 
 relevance_sets = MESH_RELEVANCE
 
-auto = {m: {"p5": [], "ndcg5": []} for m in ["source", "run_b", "xgboost"]}
+# All three models are two-stream here, so all are scored on the physiology
+# stream — the like-for-like retrieval channel the comparison is about.
+auto = {m: {"p5": [], "ndcg5": []} for m in ["source", "run_b", "run_c"]}
 
 for case in all_cases:
     ln, sid = case["label"], case["stay_id"]
     rel = relevance_sets.get(ln, set())
     src_exp = next((e for e in explanations["source"] if e["stay_id"]==sid and e["label"]==ln), None)
     b_exp   = next((e for e in explanations["run_b"]  if e["stay_id"]==sid and e["label"]==ln), None)
-    xgb_exp = next((e for e in explanations["xgb"]    if e["stay_id"]==sid and e["label"]==ln), None)
-    if not (src_exp and b_exp and xgb_exp):
+    c_exp   = next((e for e in explanations["run_c"]  if e["stay_id"]==sid and e["label"]==ln), None)
+    if not (src_exp and b_exp and c_exp):
         continue
     for key, exp, stream in [("source", src_exp, "physio_hits"),
                              ("run_b",  b_exp,   "physio_hits"),
-                             ("xgboost",xgb_exp, "merged_hits")]:
+                             ("run_c",  c_exp,   "physio_hits")]:
         hits = exp.get(stream, [])
         auto[key]["p5"].append(_precision_at_k(hits, rel, k=TOP_K_DOCS))
         binrel = {h["pmid"]: (1 if _mesh_hit(h, rel) else 0) for h in hits}
@@ -1388,30 +1342,37 @@ for case in all_cases:
 print(f"  Overall (all {len(all_cases)} cases):\n")
 print(f"  {'Model':<12} {'MeSH P@5':>10} {'MeSH nDCG@5':>13}")
 print("  " + "─"*37)
-for key, label in [("source","Source"), ("run_b","Run B"), ("xgboost","XGBoost")]:
+for key, label in [("source","Source"), ("run_b","Run B"), ("run_c","Run C")]:
     print(f"  {label:<12} {_mean(auto[key]['p5']):>10.3f} {_mean(auto[key]['ndcg5']):>13.3f}")
 
 print(f"\n  Per-label MeSH Precision@{TOP_K_DOCS}:\n")
-print(f"  {'Label':<22} {'Source':>8} {'Run B':>8} {'XGBoost':>9}")
+print(f"  {'Label':<22} {'Source':>8} {'Run B':>8} {'Run C':>8}")
 print("  " + "─"*52)
 for ln in LABEL_COLS:
     rel = relevance_sets.get(ln, set())
-    sp, bp, xp = [], [], []
+    sp, bp, cp = [], [], []
     for case in all_cases:
         if case["label"] != ln: continue
         sid = case["stay_id"]
         se = next((e for e in explanations["source"] if e["stay_id"]==sid and e["label"]==ln), None)
         be = next((e for e in explanations["run_b"]  if e["stay_id"]==sid and e["label"]==ln), None)
-        xe = next((e for e in explanations["xgb"]    if e["stay_id"]==sid and e["label"]==ln), None)
-        if not (se and be and xe): continue
+        ce = next((e for e in explanations["run_c"]  if e["stay_id"]==sid and e["label"]==ln), None)
+        if not (se and be and ce): continue
         sp.append(_precision_at_k(se.get("physio_hits", []), rel, k=TOP_K_DOCS))
         bp.append(_precision_at_k(be.get("physio_hits", []), rel, k=TOP_K_DOCS))
-        xp.append(_precision_at_k(xe.get("merged_hits", []), rel, k=TOP_K_DOCS))
-    print(f"  {ln:<22} {_mean(sp):>8.3f} {_mean(bp):>8.3f} {_mean(xp):>9.3f}")
+        cp.append(_precision_at_k(ce.get("physio_hits", []), rel, k=TOP_K_DOCS))
+    print(f"  {ln:<22} {_mean(sp):>8.3f} {_mean(bp):>8.3f} {_mean(cp):>8.3f}")
 
-for key, skey in [("source","source"), ("run_b","runb"), ("xgboost","xgb")]:
+for key, skey in [("source","source"), ("run_b","runb"), ("run_c","runc")]:
     summary[f"auto_mesh_p5_{skey}"]    = _mean(auto[key]["p5"])
     summary[f"auto_mesh_ndcg5_{skey}"] = _mean(auto[key]["ndcg5"])
+
+# Per-case values, index-aligned across the three arms (same loop order), so
+# script14 can compute paired bootstrap CIs on P@5 rather than point estimates.
+with open(SAVE_PATH / "pubmed_rag_percase_precision.json", "w") as f:
+    json.dump({k: {"p5": auto[k]["p5"], "ndcg5": auto[k]["ndcg5"]}
+               for k in ("source", "run_b", "run_c")}, f, cls=_NpEncoder)
+print("✅ Per-case P@5/nDCG@5 written to pubmed_rag_percase_precision.json")
 summary["auto_relevance_source"] = "explicit canonical MeSH descriptor per label"
 summary["embedding_model"]       = f"{EMBEDDING_BACKEND}"
 
@@ -1448,16 +1409,16 @@ for ln in LABEL_COLS:
                     if e["stay_id"] == sid and e["label"] == ln), None)
     b_exp   = next((e for e in explanations["run_b"]
                     if e["stay_id"] == sid and e["label"] == ln), None)
-    xgb_exp = next((e for e in explanations["xgb"]
+    c_exp   = next((e for e in explanations["run_c"]
                     if e["stay_id"] == sid and e["label"] == ln), None)
 
-    if not (src_exp and b_exp and xgb_exp):
+    if not (src_exp and b_exp and c_exp):
         continue
 
     for model_key, exp, stream, query_field in [
         ("source",  src_exp, "physio_hits", "q_src_physio"),
         ("run_b",   b_exp,   "physio_hits", "q_b_physio"),
-        ("xgboost", xgb_exp, "merged_hits", "q_xgb"),
+        ("run_c",   c_exp,   "physio_hits", "q_c_physio"),
     ]:
         for rank, hit in enumerate(exp.get(stream, [])[:TOP_K_DOCS], start=1):
             rater_rows.append({
@@ -1515,7 +1476,7 @@ if RATER_OUTPUT_PATH.exists():
                 score = 0
             ratings.setdefault(key, {})[row["pmid"]] = score
 
-    eval_results = {m: {"prec": [], "ndcg": []} for m in ["source", "run_b", "xgboost"]}
+    eval_results = {m: {"prec": [], "ndcg": []} for m in ["source", "run_b", "run_c"]}
 
     for ln in LABEL_COLS:
         case = _best_tp(ln)
@@ -1527,13 +1488,13 @@ if RATER_OUTPUT_PATH.exists():
                         if e["stay_id"] == sid and e["label"] == ln), None)
         b_exp   = next((e for e in explanations["run_b"]
                         if e["stay_id"] == sid and e["label"] == ln), None)
-        xgb_exp = next((e for e in explanations["xgb"]
+        c_exp   = next((e for e in explanations["run_c"]
                         if e["stay_id"] == sid and e["label"] == ln), None)
 
         for model_key, exp, stream in [
             ("source",  src_exp, "physio_hits"),
             ("run_b",   b_exp,   "physio_hits"),
-            ("xgboost", xgb_exp, "merged_hits"),
+            ("run_c",   c_exp,   "physio_hits"),
         ]:
             if exp is None:
                 continue
@@ -1547,7 +1508,7 @@ if RATER_OUTPUT_PATH.exists():
           f"(TP cases, physio stream, P@{TOP_K_DOCS} / nDCG@{TOP_K_DOCS}):\n")
     print(f"  {'Model':<12} {'P@{}'.format(TOP_K_DOCS):>8} {'nDCG@{}'.format(TOP_K_DOCS):>10}")
     print("  " + "─"*34)
-    for model_key, label in [("source", "Source"), ("run_b", "Run B"), ("xgboost", "XGBoost")]:
+    for model_key, label in [("source", "Source"), ("run_b", "Run B"), ("run_c", "Run C")]:
         r = eval_results[model_key]
         print(f"  {label:<12} {_mean(r['prec']):>8.3f} {_mean(r['ndcg']):>10.3f}")
 
@@ -1555,8 +1516,8 @@ if RATER_OUTPUT_PATH.exists():
     print(f"  is recommended. Add a 'relevant_0_1_rater2' column to the output CSV")
     print(f"  and compute kappa across the two columns.")
 
-    for key, skey in [("source","source"), ("run_b","runb"), ("xgboost","xgb")]:
-        summary[f"clinician_p5_{skey}"]   = _mean(eval_results[key]["prec"])
+    for key, skey in [("source","source"), ("run_b","runb"), ("run_c","runc")]:
+        summary[f"clinician_p5_{skey}"]    = _mean(eval_results[key]["prec"])
         summary[f"clinician_ndcg5_{skey}"] = _mean(eval_results[key]["ndcg"])
 
     with open(SAVE_PATH / "pubmed_rag_summary.json", "w") as f:
@@ -1575,35 +1536,35 @@ print("FINAL SUMMARY")
 print("="*70)
 print(f"Corpus: {len(corpus_entries)} abstracts | {CORPUS_MIN_DATE} – {CORPUS_MAX_DATE}")
 print(f"Cases:  {len(all_cases)} (post-drift, {N_CASES_PER_LABEL}/label)")
-print(f"\nQuery strategy: automatic from IG/SHAP feature names")
+print(f"\nComparison: Run B (physiology frozen) vs Run C (full adaptation)")
+print(f"Query strategy: automatic from IG feature names")
 print(f"  No vocabulary tables | No MeSH curation | No relevance labels")
 print(f"  Physio sub-query: top-{TOP_K_PHYSIO} SEQ_FEATURES by |IG|")
-print(f"  Treat  sub-query: top-{TOP_K_TREAT} TREATMENT_FEATURES by |SHAP/IG|")
+print(f"  Treat  sub-query: top-{TOP_K_TREAT} TREATMENT_FEATURES by |IG|")
 
 print(f"\nRETRIEVAL STABILITY (Jaccard vs source model):")
-print(f"  {'Stream':<20} {'Run B':>8} {'XGBoost':>9}  "
-      f"{'Δ (B−XGB)':>10}")
+print(f"  {'Stream':<20} {'Run B':>8} {'Run C':>8}  "
+      f"{'Δ (B−C)':>10}")
 print("  " + "─"*50)
-for name, kb, kx in [
-    ("Physiology",  "mean_jacc_physio_b",  "mean_jacc_physio_xgb"),
-    ("Treatment",   "mean_jacc_treat_b",   "mean_jacc_treat_xgb"),
-    ("Merged",      "mean_jacc_merged_b",  "mean_jacc_merged_xgb"),
+for name, kb, kc in [
+    ("Physiology",  "mean_jacc_physio_b",  "mean_jacc_physio_c"),
+    ("Treatment",   "mean_jacc_treat_b",   "mean_jacc_treat_c"),
+    ("Merged",      "mean_jacc_merged_b",  "mean_jacc_merged_c"),
 ]:
-    vb = summary[kb];  vx = summary[kx]
-    print(f"  {name:<20} {vb:>8.3f}  {vx:>9.3f}  {vb-vx:>+10.3f}")
+    vb = summary[kb];  vc = summary[kc]
+    print(f"  {name:<20} {vb:>8.3f}  {vc:>8.3f}  {vb-vc:>+10.3f}")
 
 print(f"\nMECHANISTIC LINK (attribution delta → retrieval divergence):")
-print(f"  Run B   Spearman r={summary['spearman_r_runb']:.3f}  "
+print(f"  Run B  Spearman r={summary['spearman_r_runb']:.3f}  "
       f"p={summary['spearman_p_runb']:.4f}")
-print(f"  XGBoost Spearman r={summary['spearman_r_xgb']:.3f}  "
-      f"p={summary['spearman_p_xgb']:.4f}")
+print(f"  Run C  Spearman r={summary['spearman_r_runc']:.3f}  "
+      f"p={summary['spearman_p_runc']:.4f}")
 
 
 print(f"\nATTRIBUTION MASS SHIFT (physiology stream, |adapted − source|):")
-print(f"  Run B:    {summary['mean_physio_delta_b']:.4f}")
-print(f"  XGBoost:  {summary['mean_physio_delta_xgb']:.4f}")
-ratio = summary["mean_physio_delta_xgb"] / max(summary["mean_physio_delta_b"], 1e-9)
-print(f"  Ratio:    {ratio:.1f}×  (>1 = XGBoost physio more unstable)")
+print(f"  Run B:  {summary['mean_physio_delta_b']:.4f}  (frozen LSTM → residual via head)")
+print(f"  Run C:  {summary['mean_physio_delta_c']:.4f}  (LSTM adapted)")
+ratio = summary["mean_physio_delta_c"] / max(summary["mean_physio_delta_b"], 1e-9)
+print(f"  Ratio:  {ratio:.1f}×  (>1 = Run C physio attributions more unstable)")
 print(f"  Note: raw delta ratio. Normalized ratio (÷ source p95) reported")
 print(f"  in fig_biological_amnesia for cross-section consistency.")
-print(f"\n✅ script13 complete")

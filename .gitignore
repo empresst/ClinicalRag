@@ -1,0 +1,11 @@
+# MIMIC-derived data and trained weights must never be committed (PhysioNet DUA)
+*.parquet
+*.csv
+*.npz
+*.pt
+*.pkl
+pubmed_rag_explanations.json
+pubmed_rag_stability.json
+eval_split.json
+__pycache__/
+.venv/

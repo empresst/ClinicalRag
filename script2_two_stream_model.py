@@ -1,4 +1,3 @@
-%%writefile models/script2_two_stream_model.py
 """
 script2_two_stream_model_v7.py
 ═════════════════════════════════
@@ -96,8 +95,9 @@ AUROC_DRIFT_THR   = 0.020 # Per-label mean AUROC drop that counts as significant
 MIN_PERF_DROPS    = 1     # ≥1 label must drop > AUROC_DRIFT_THR.
 
 LABEL_COLS = ["label_vasopressor", "label_intubation", "label_septic_shock"]
-BASE_PATH  = Path("/kaggle/input/datasets/fatematamanna/allnew")
-SAVE_PATH  = Path("/kaggle/working")
+import os
+BASE_PATH  = Path(os.environ.get("DATA_DIR", "/kaggle/input/datasets/fatematamanna/allnew"))
+SAVE_PATH  = Path(os.environ.get("OUT_DIR", "/kaggle/working"))
 TRAIN_YEARS = ["2008 - 2010", "2011 - 2013"]
 
 # FIX 3: features where value > SEQ_LEN means an event happened AFTER the

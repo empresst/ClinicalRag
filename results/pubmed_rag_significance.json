@@ -1,0 +1,167 @@
+{
+  "config": {
+    "rbo_p": 0.9,
+    "depth_k": 5,
+    "n_perm": 10000,
+    "n_boot": 10000,
+    "seed": 42
+  },
+  "overall": {
+    "Physio Jaccard": {
+      "metric": "Physio Jaccard",
+      "mean_b": 0.6144973544973544,
+      "mean_c": 0.5168121693121693,
+      "mean_diff": 0.0976851851851852,
+      "ci95_low": 0.06925892857142857,
+      "ci95_high": 0.1278587962962963,
+      "perm_p": 9.999000099990002e-05,
+      "pct_b_ge_c": 82.66666666666667,
+      "n_pairs": 300,
+      "favours": "B"
+    },
+    "Physio RBO": {
+      "metric": "Physio RBO",
+      "mean_b": 0.6849341833333333,
+      "mean_c": 0.6005649166666666,
+      "mean_diff": 0.08436926666666666,
+      "ci95_low": 0.06039917583333334,
+      "ci95_high": 0.10873611958333333,
+      "perm_p": 9.999000099990002e-05,
+      "pct_b_ge_c": 69.0,
+      "n_pairs": 300,
+      "favours": "B"
+    },
+    "Treat  Jaccard": {
+      "metric": "Treat  Jaccard",
+      "mean_b": 0.5001455026455026,
+      "mean_c": 0.5547883597883597,
+      "mean_diff": -0.05464285714285714,
+      "ci95_low": -0.09064814814814814,
+      "ci95_high": -0.019509589947089963,
+      "perm_p": 0.0026997300269973002,
+      "pct_b_ge_c": 65.66666666666666,
+      "n_pairs": 300,
+      "favours": "C"
+    },
+    "Treat  RBO": {
+      "metric": "Treat  RBO",
+      "mean_b": 0.6387182166666666,
+      "mean_c": 0.67734895,
+      "mean_diff": -0.038630733333333334,
+      "ci95_low": -0.06628617041666666,
+      "ci95_high": -0.011489929166666671,
+      "perm_p": 0.0053994600539946005,
+      "pct_b_ge_c": 55.333333333333336,
+      "n_pairs": 300,
+      "favours": "C"
+    },
+    "Physio |\u0394attr|": {
+      "metric": "Physio |\u0394attr|",
+      "mean_b": 0.0424172177600035,
+      "mean_c": 0.044108123731655464,
+      "mean_diff": -0.0016909059716519622,
+      "ci95_low": -0.0053064736778827845,
+      "ci95_high": 0.0019786059598026506,
+      "perm_p": 0.37636236376362364,
+      "pct_b_ge_c": 38.666666666666664,
+      "n_pairs": 300,
+      "favours": "B"
+    }
+  },
+  "per_label": {
+    "label_vasopressor": {
+      "Physio Jaccard": {
+        "metric": "Physio Jaccard",
+        "mean_b": 0.48063492063492075,
+        "mean_c": 0.4069047619047619,
+        "mean_diff": 0.07373015873015872,
+        "ci95_low": 0.026468253968253964,
+        "ci95_high": 0.12377083333333332,
+        "perm_p": 0.0052994700529947,
+        "pct_b_ge_c": 78.0,
+        "n_pairs": 100,
+        "favours": "B"
+      },
+      "Physio RBO": {
+        "metric": "Physio RBO",
+        "mean_b": 0.58953885,
+        "mean_c": 0.52142745,
+        "mean_diff": 0.0681114,
+        "ci95_low": 0.023752960000000004,
+        "ci95_high": 0.1141911125,
+        "perm_p": 0.0036996300369963003,
+        "pct_b_ge_c": 66.0,
+        "n_pairs": 100,
+        "favours": "B"
+      }
+    },
+    "label_intubation": {
+      "Physio Jaccard": {
+        "metric": "Physio Jaccard",
+        "mean_b": 0.5957142857142856,
+        "mean_c": 0.46341269841269844,
+        "mean_diff": 0.13230158730158728,
+        "ci95_low": 0.07686309523809523,
+        "ci95_high": 0.19012103174603176,
+        "perm_p": 0.00019998000199980003,
+        "pct_b_ge_c": 84.0,
+        "n_pairs": 100,
+        "favours": "B"
+      },
+      "Physio RBO": {
+        "metric": "Physio RBO",
+        "mean_b": 0.6495738,
+        "mean_c": 0.5399108499999999,
+        "mean_diff": 0.10966295000000002,
+        "ci95_low": 0.06457616375,
+        "ci95_high": 0.15682976624999997,
+        "perm_p": 9.999000099990002e-05,
+        "pct_b_ge_c": 75.0,
+        "n_pairs": 100,
+        "favours": "B"
+      }
+    },
+    "label_septic_shock": {
+      "Physio Jaccard": {
+        "metric": "Physio Jaccard",
+        "mean_b": 0.7671428571428572,
+        "mean_c": 0.6801190476190478,
+        "mean_diff": 0.08702380952380953,
+        "ci95_low": 0.03916369047619047,
+        "ci95_high": 0.13583333333333336,
+        "perm_p": 0.00019998000199980003,
+        "pct_b_ge_c": 86.0,
+        "n_pairs": 100,
+        "favours": "B"
+      },
+      "Physio RBO": {
+        "metric": "Physio RBO",
+        "mean_b": 0.8156899,
+        "mean_c": 0.74035645,
+        "mean_diff": 0.07533345,
+        "ci95_low": 0.03898072125,
+        "ci95_high": 0.11299043874999996,
+        "perm_p": 9.999000099990002e-05,
+        "pct_b_ge_c": 66.0,
+        "n_pairs": 100,
+        "favours": "B"
+      }
+    }
+  },
+  "localisation": {
+    "jaccard": {
+      "mean_dd": 0.1523280423280423,
+      "ci95_low": 0.10644080687830688,
+      "ci95_high": 0.20010747354497352,
+      "perm_p": 9.999000099990002e-05,
+      "n": 300
+    },
+    "rbo": {
+      "mean_dd": 0.12299999999999997,
+      "ci95_low": 0.08635980458333332,
+      "ci95_high": 0.15990660916666666,
+      "perm_p": 9.999000099990002e-05,
+      "n": 300
+    }
+  }
+}

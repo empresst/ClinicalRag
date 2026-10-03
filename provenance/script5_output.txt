@@ -98,9 +98,9 @@ Test-Post (2020 - 2022+):
 
 Saved → /kaggle/working/full_comparison_results.json
 PyTorch ordering: 5749 stays
-First 5: [30002012, 30005000, 30005008, 30005199, 30008046]
+First 5: [[redacted], [redacted], [redacted], [redacted], [redacted]]
 ✅ Ordering matches PyTorch
-XGBoost flatten ordering first 5: [30002012, 30005000, 30005008, 30005199, 30008046]
+XGBoost flatten ordering first 5: [[redacted], [redacted], [redacted], [redacted], [redacted]]
 ✅ XGBoost flatten order verified against PyTorch
 
 AUROC verification (should match Table 4):
@@ -114,7 +114,7 @@ AUROC verification (should match Table 4):
 ======================================================================
 BRIDGE: Computing per-patient SHAP for fig_biological_amnesia
 ======================================================================
-  Matched stay_id=xxxxxxxx at XGBoost index 61
+  Matched stay_id=[redacted] at XGBoost index 61
   p_xgb_src=0.872  p_xgb_adp=0.795
   Amnesia feature: total_crystalloid_ml  Δ=16.2670
 ✅ Saved fig_amnesia_data.pkl — ready for fig_biological_amnesia_v3_patch.py

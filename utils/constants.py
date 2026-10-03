@@ -1,4 +1,3 @@
-%%writefile utils/constants.py
 
 
 SEQ_FEATURES = [

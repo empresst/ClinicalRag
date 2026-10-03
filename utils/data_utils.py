@@ -1,4 +1,3 @@
-%%writefile utils/data_utils.py
 import polars as pl
 import numpy as np
 import torch
